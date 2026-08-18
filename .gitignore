@@ -43,5 +43,7 @@ next-env.d.ts
 /.sites-runtime/
 /outputs/
 /work/
+/scratch/
+*.html
 
 .vercel

@@ -12,6 +12,7 @@ import {
   updateRoomDifficulty,
   type MultiplayerMode,
   type MultiplayerRoom,
+  type RoomPlayer,
 } from "@/lib/firebase/multiplayer";
 import {
   subscribeToFriends,
@@ -205,7 +206,7 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
   };
 
   const isHost = currentRoom?.hostId === user.uid;
-  const playersList = currentRoom ? Object.values(currentRoom.players) : [];
+  const playersList: RoomPlayer[] = currentRoom ? Object.values(currentRoom.players) : [];
   const downloadingPlayer = playersList.find((p) => p.downloadStatus === "downloading");
   const isAnyDownloading = Boolean(downloadingPlayer);
   const allReady = playersList.length > 0 && playersList.every((p) => p.ready && p.downloadStatus !== "downloading");
