@@ -87,7 +87,7 @@ export function YouTubeVideoBackground({
 
   const isLoop = mode === "loop";
   const loopParams = isLoop ? `&loop=1&playlist=${videoId}` : "";
-  const embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&iv_load_policy=3&disablekb=1&modestbranding=1${loopParams}&enablejsapi=1&origin=${typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : ""}`;
+  const embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&disablekb=1&fs=0&iv_load_policy=3&modestbranding=1&playsinline=1&rel=0&showinfo=0${loopParams}&enablejsapi=1&origin=${typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : ""}`;
 
   return (
     <div className="yt-video-bg-container" aria-hidden="true">
@@ -96,10 +96,22 @@ export function YouTubeVideoBackground({
           ref={iframeRef}
           src={embedUrl}
           title="YouTube Music Video Background"
-          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+          tabIndex={-1}
+          aria-hidden="true"
+          allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture"
           onLoad={handleIframeLoad}
+          style={{
+            pointerEvents: "none",
+            userSelect: "none",
+            border: 0,
+            width: "100%",
+            height: "100%",
+          }}
         />
       </div>
+
+      {/* Input Blocker Shield so no clicks or keypresses can ever reach the YouTube Player */}
+      <div className="yt-video-click-shield" />
 
       <div
         className="yt-video-dim-overlay"

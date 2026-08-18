@@ -615,6 +615,17 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
     };
   }, [song.metadata.artist, song.metadata.title]);
 
+  // Keep game focus locked to window so keyboard/gamepad inputs never leak to YouTube iframe
+  useEffect(() => {
+    const handleBlur = () => {
+      if (document.activeElement?.tagName === "IFRAME") {
+        window.focus();
+      }
+    };
+    window.addEventListener("blur", handleBlur);
+    return () => window.removeEventListener("blur", handleBlur);
+  }, []);
+
   // Subscribe to multiplayer room updates
   useEffect(() => {
     if (!multiplayerRoom?.id) return;
