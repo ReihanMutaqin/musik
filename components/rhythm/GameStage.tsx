@@ -2250,18 +2250,11 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
         </div>
       )}
 
-      {/* KARAOKE FLOATING CENTER-STAGE HUD */}
+      {/* ORIGINAL CLEAN LYRICS BANNER */}
       {phase === "playing" && lyricDisplayMode === "karaoke" && (currentLyricText || nextLyricText) && (
         <div className="karaoke-lyrics-bar" aria-label="Synchronized Song Lyrics">
-          {currentLyricText && (
-            <div className="karaoke-current-wrap" onClick={() => setShowLyricSyncModal(true)} title="Klik untuk kalibrasi offset lirik">
-              <span className="karaoke-current-line">{currentLyricText}</span>
-              <div className="karaoke-progress-bar">
-                <span style={{ width: `${Math.round(lyricProgress * 100)}%` }} />
-              </div>
-            </div>
-          )}
-          {nextLyricText && <span className="karaoke-next-line">{nextLyricText}</span>}
+          {currentLyricText && <p className="current-line">{currentLyricText}</p>}
+          {nextLyricText && <p className="next-line">{nextLyricText}</p>}
         </div>
       )}
 
