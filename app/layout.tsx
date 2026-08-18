@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { AuthProvider } from "@/lib/firebase/auth";
 import { AppProviders } from "@/components/AppProviders";
 import "./globals.css";
 
@@ -36,28 +37,21 @@ export const viewport: Viewport = {
   initialScale: 1,
   viewportFit: "cover",
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#09090b" },
-    { media: "(prefers-color-scheme: dark)", color: "#09090b" },
+    { media: "(prefers-color-scheme: light)", color: "#0a0a0e" },
+    { media: "(prefers-color-scheme: dark)", color: "#0a0a0e" },
   ],
 };
 
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="id" suppressHydrationWarning>
-      <head>
-        <link rel="preconnect" href="https://fonts.googleapis.com" />
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
-        <link
-          href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@500;600;700;800&display=swap"
-          rel="stylesheet"
-        />
-      </head>
       <body>
-        <AppProviders>
-          {children}
-        </AppProviders>
+        <AuthProvider>
+          <AppProviders>
+            {children}
+          </AppProviders>
+        </AuthProvider>
       </body>
     </html>
   );
 }
-

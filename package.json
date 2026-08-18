@@ -6,18 +6,21 @@
     "node": ">=22.13.0"
   },
   "scripts": {
+    "install:ci": "bash scripts/install-ci.sh",
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
-    "typecheck": "tsc --noEmit"
+    "test": "npm run build && node --test tests/rendered-html.test.mjs",
+    "validate:artifact": "bash scripts/validate-artifact.sh",
+    "lint": "bash scripts/sites-env.sh -- eslint . --ignore-pattern dist --ignore-pattern .next",
+    "typecheck": "tsc --noEmit",
+    "db:generate": "bash scripts/sites-env.sh -- drizzle-kit generate"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
     "@tonejs/midi": "^2.0.28",
     "drizzle-orm": "0.45.2",
     "fflate": "^0.8.3",
-    "firebase": "^12.17.1",
     "next": "16.2.6",
     "react": "19.2.6",
     "react-dom": "19.2.6"

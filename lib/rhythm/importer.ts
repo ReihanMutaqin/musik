@@ -1,13 +1,11 @@
 import { unzipSync } from "fflate";
 import { parseChart, parseMidi } from "./chart";
-import { generateAutoChart } from "./autochart";
-import { parseChartLyrics, parseLrc } from "./lyrics";
 import type { ImportedSong, SongAsset, SongMetadata } from "./types";
 
 type FileMap = Map<string, Uint8Array>;
 
 const textDecoder = new TextDecoder("utf-8");
-const audioPattern = /\.(ogg|opus|mp3|wav|m4a|webm|flac)$/i;
+const audioPattern = /\.(ogg|opus|mp3|wav|m4a|webm)$/i;
 const imagePattern = /\.(png|jpe?g|webp)$/i;
 
 function mimeFor(name: string) {
@@ -19,7 +17,6 @@ function mimeFor(name: string) {
     wav: "audio/wav",
     m4a: "audio/mp4",
     webm: "audio/webm",
-    flac: "audio/flac",
     png: "image/png",
     jpg: "image/jpeg",
     jpeg: "image/jpeg",
@@ -58,7 +55,7 @@ function parseIni(source: string) {
 function normalizeMetadata(raw: Record<string, string>, sourceName: string): SongMetadata {
   const durationMs = Number(raw.song_length ?? raw.length ?? 0);
   return {
-    title: raw.name?.trim() || sourceName.replace(/\.(sng|zip|mp3|wav|ogg|m4a|flac)$/i, ""),
+    title: raw.name?.trim() || sourceName.replace(/\.(sng|zip)$/i, ""),
     artist: raw.artist?.trim() || "Unknown artist",
     album: raw.album?.trim() || "Unknown release",
     year: raw.year?.replace(/^,\s*/, "").trim() || "—",
@@ -98,10 +95,8 @@ function buildSong(
     ?? entries.find(([name]) => name.toLowerCase().endsWith(".chart"));
   const midiEntry = entries.find(([name]) => basename(name) === "notes.mid")
     ?? entries.find(([name]) => name.toLowerCase().endsWith(".mid"));
-
-  const chartRaw = chartEntry ? textDecoder.decode(chartEntry[1]) : "";
-  let charts = chartEntry
-    ? parseChart(chartRaw)
+  const charts = chartEntry
+    ? parseChart(textDecoder.decode(chartEntry[1]))
     : midiEntry
       ? parseMidi(midiEntry[1])
       : [];
@@ -109,51 +104,6 @@ function buildSong(
   const artEntry = entries.find(([name]) => /(^|\/)album\.(png|jpe?g|webp)$/i.test(name))
     ?? entries.find(([name]) => imagePattern.test(name));
   const metadata = normalizeMetadata(rawMetadata, sourceName);
-
-  // If no playable charts found in package, generate synthetic playable charts so song is 100% playable
-  if (!charts.length && audio.length > 0) {
-    const totalDuration = metadata.durationMs > 0 ? metadata.durationMs / 1000 : 180;
-    const bpm = 120;
-    const beatInterval = 60 / bpm;
-    (["expert", "hard", "medium", "easy"] as const).forEach((difficulty, diffIdx) => {
-      const step = diffIdx === 0 ? 0.5 : diffIdx === 1 ? 1 : diffIdx === 2 ? 2 : 4;
-      const notes: RhythmNote[] = [];
-      let noteId = 0;
-      for (let t = 2; t < totalDuration - 2; t += beatInterval * step) {
-        const lane = Math.floor((Math.sin(t * 1.5 + diffIdx) + 1) * 2.49) % 5;
-        const isOverdrive = noteId > 0 && noteId % 14 === 0;
-        notes.push({
-          id: noteId++,
-          tick: Math.round(t * 192),
-          time: t,
-          duration: diffIdx <= 1 && noteId % 6 === 0 ? beatInterval * 1.5 : 0,
-          lanes: [lane],
-          overdrive: isOverdrive,
-        });
-      }
-      charts.push({
-        id: `synth-${difficulty}`,
-        label: "Lead Guitar",
-        instrument: "guitar",
-        difficulty,
-        notes,
-        sections: [
-          { time: 0, name: "Intro" },
-          { time: totalDuration * 0.35, name: "Verse" },
-          { time: totalDuration * 0.6, name: "Chorus" },
-          { time: totalDuration * 0.85, name: "Outro" },
-        ],
-      });
-    });
-  }
-
-  // Extract embedded LRC or .chart lyrics if available
-  const lrcEntry = entries.find(([name]) => name.toLowerCase().endsWith(".lrc"));
-  let lyrics = lrcEntry ? parseLrc(textDecoder.decode(lrcEntry[1])) : undefined;
-  if (!lyrics && chartRaw) {
-    const chartLyrics = parseChartLyrics(chartRaw, (tick) => tick / 480);
-    if (chartLyrics.length) lyrics = chartLyrics;
-  }
 
   if (!charts.length) throw new Error("Chart playable tidak ditemukan. Paket perlu berisi notes.chart atau notes.mid.");
   if (!audio.length) throw new Error("Audio tidak ditemukan. Sertakan song.ogg, song.opus, MP3, WAV, atau stem audio.");
@@ -166,7 +116,6 @@ function buildSong(
     artwork: artEntry
       ? { name: basename(artEntry[0]), blob: makeBlob(artEntry[1], mimeFor(artEntry[0])) }
       : undefined,
-    lyrics,
     sourceType,
     fileCount: entries.length,
   };
@@ -209,10 +158,11 @@ function readSng(bytes: Uint8Array, sourceName: string) {
   const metadata: Record<string, string> = {};
   for (let index = 0; index < metadataCount; index += 1) {
     const keyLength = readI32();
-    const key = readText(keyLength);
+    if (keyLength < 0 || keyLength > 1_000_000) throw new Error("Kunci metadata .sng tidak valid.");
+    const key = readText(keyLength).toLowerCase();
     const valueLength = readI32();
-    const value = readText(valueLength);
-    metadata[key.toLowerCase()] = value;
+    if (valueLength < 0 || valueLength > 8_000_000) throw new Error("Nilai metadata .sng tidak valid.");
+    metadata[key] = readText(valueLength);
   }
   offset = metadataEnd;
 
@@ -222,10 +172,10 @@ function readSng(bytes: Uint8Array, sourceName: string) {
   if (fileCount > 20_000 || indexEnd > bytes.byteLength) throw new Error("Indeks file .sng tidak valid.");
   const fileIndex: Array<{ name: string; length: number; at: number }> = [];
   for (let index = 0; index < fileCount; index += 1) {
-    const nameLength = readU8();
-    const name = readText(nameLength);
-    const length = Number(readU64());
-    const at = Number(readU64());
+    const name = readText(readU8());
+    const length = readU64();
+    const at = readU64();
+    if (at + length > bytes.byteLength) throw new Error(`Data ${name} di dalam .sng tidak lengkap.`);
     fileIndex.push({ name, length, at });
   }
 
@@ -262,52 +212,10 @@ function readZip(bytes: Uint8Array, sourceName: string) {
   });
 }
 
-/**
- * Fallback generator for raw standalone audio files (MP3, WAV, OGG, M4A, FLAC) using AI AutoChart!
- */
-export async function importAudioOnly(file: File): Promise<ImportedSong> {
-  const arrayBuffer = await file.arrayBuffer();
-  const audioContext = new (window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext)();
-  const audioBuffer = await audioContext.decodeAudioData(arrayBuffer);
-
-  const cleanName = file.name.replace(/\.[a-zA-Z0-9]+$/i, "");
-  const charts = await generateAutoChart(audioBuffer, cleanName);
-
-  const metadata: SongMetadata = {
-    title: cleanName,
-    artist: "AI AutoChart",
-    album: "Audio Import",
-    year: "2026",
-    genre: "Auto Generated",
-    charter: "RIFF//LAB AI AutoChart",
-    durationMs: Math.round(audioBuffer.duration * 1000),
-    sourceName: file.name,
-  };
-
-  return {
-    id: `ai-${slug(cleanName)}-${Date.now()}`,
-    metadata,
-    charts,
-    audio: [{ name: file.name, blob: file }],
-    sourceType: "audio",
-    fileCount: 1,
-  };
-}
-
 export async function importRhythmFile(file: File): Promise<ImportedSong[]> {
   if (file.size > 800 * 1024 * 1024) throw new Error("Paket terlalu besar. Batas impor saat ini 800 MB.");
   const extension = file.name.split(".").pop()?.toLowerCase();
-
-  // If raw audio file, run AI AutoChart!
-  if (["mp3", "wav", "ogg", "opus", "m4a", "webm", "flac"].includes(extension ?? "")) {
-    const aiSong = await importAudioOnly(file);
-    return [aiSong];
-  }
-
-  if (extension !== "sng" && extension !== "zip") {
-    throw new Error("Format file tidak dikenali. Gunakan .sng, .zip, .mp3, .wav, atau .ogg.");
-  }
-
+  if (extension !== "sng" && extension !== "zip") throw new Error("Gunakan file .sng atau .zip dari paket chart.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   return extension === "sng" ? [readSng(bytes, file.name)] : readZip(bytes, file.name);
 }

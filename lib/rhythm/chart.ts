@@ -11,36 +11,20 @@ const difficultyOrder: Difficulty[] = ["easy", "medium", "hard", "expert"];
 
 const instrumentNames: Record<string, { instrument: Instrument; label: string }> = {
   Single: { instrument: "guitar", label: "Lead Guitar" },
-  Guitar: { instrument: "guitar", label: "Lead Guitar" },
-  Lead: { instrument: "guitar", label: "Lead Guitar" },
   DoubleGuitar: { instrument: "guitar", label: "Co-op Guitar" },
   DoubleBass: { instrument: "bass", label: "Bass" },
-  Bass: { instrument: "bass", label: "Bass" },
   DoubleRhythm: { instrument: "rhythm", label: "Rhythm" },
-  Rhythm: { instrument: "rhythm", label: "Rhythm" },
   Drums: { instrument: "drums", label: "Drums" },
-  Drum: { instrument: "drums", label: "Drums" },
   Keyboard: { instrument: "keys", label: "Keys" },
-  Keys: { instrument: "keys", label: "Keys" },
-  GHLGuitar: { instrument: "guitar", label: "GHL Guitar" },
-  GHLBass: { instrument: "bass", label: "GHL Bass" },
 };
 
 const midiTracks: Record<string, { instrument: Instrument; label: string }> = {
   "PART GUITAR": { instrument: "guitar", label: "Lead Guitar" },
   "T1 GEMS": { instrument: "guitar", label: "Lead Guitar" },
-  "GUITAR": { instrument: "guitar", label: "Lead Guitar" },
-  "LEAD": { instrument: "guitar", label: "Lead Guitar" },
   "PART BASS": { instrument: "bass", label: "Bass" },
-  "BASS": { instrument: "bass", label: "Bass" },
   "PART RHYTHM": { instrument: "rhythm", label: "Rhythm" },
-  "RHYTHM": { instrument: "rhythm", label: "Rhythm" },
   "PART DRUMS": { instrument: "drums", label: "Drums" },
-  "DRUMS": { instrument: "drums", label: "Drums" },
   "PART KEYS": { instrument: "keys", label: "Keys" },
-  "KEYS": { instrument: "keys", label: "Keys" },
-  "PART GUITAR GHL": { instrument: "guitar", label: "GHL Guitar" },
-  "PART BASS GHL": { instrument: "bass", label: "GHL Bass" },
 };
 
 function readSections(source: string) {
@@ -118,7 +102,7 @@ export function parseChart(source: string): PlayableChart[] {
     if (!sectionMatch) continue;
     const difficulty = sectionMatch[1].toLowerCase() as Difficulty;
     const instrumentInfo = instrumentNames[sectionMatch[2]];
-    if (!instrumentInfo) continue;
+    if (!instrumentInfo || instrumentInfo.instrument === "drums") continue;
 
     const grouped = new Map<number, { lanes: Set<number>; sustain: number; overdrive: boolean }>();
     const powerPhrases = [...body.matchAll(/^\s*(\d+)\s*=\s*S\s+2\s+(\d+)/gm)].map((match) => ({
@@ -177,7 +161,7 @@ export function parseMidi(bytes: Uint8Array): PlayableChart[] {
 
   for (const track of midi.tracks) {
     const info = midiTracks[track.name.trim().toUpperCase()];
-    if (!info) continue;
+    if (!info || info.instrument === "drums") continue;
 
     difficultyOrder.forEach((difficulty, difficultyIndex) => {
       const base = 60 + difficultyIndex * 12;

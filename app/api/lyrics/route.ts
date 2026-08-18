@@ -39,7 +39,13 @@ export async function GET(request: Request) {
     });
 
     if (res.ok) {
-      const data = await res.json();
+      const data = (await res.json()) as {
+        id?: number;
+        trackName?: string;
+        artistName?: string;
+        syncedLyrics?: string;
+        plainLyrics?: string;
+      };
       if (data && (data.syncedLyrics || data.plainLyrics)) {
         return NextResponse.json({
           source: "lrclib",

@@ -117,8 +117,8 @@ export async function getGlobalOrOnlineLyrics(
 
     const res = await fetch(`/api/lyrics?${params.toString()}`);
     if (res.ok) {
-      const data = await res.json();
-      if (data.syncedLyrics) {
+      const data = (await res.json()) as { syncedLyrics?: string; plainLyrics?: string };
+      if (data && data.syncedLyrics) {
         const lines = parseLrc(data.syncedLyrics);
         if (lines.length > 0) {
           return {
