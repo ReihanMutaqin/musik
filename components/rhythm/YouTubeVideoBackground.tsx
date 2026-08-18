@@ -2,6 +2,8 @@
 
 import React, { useEffect, useRef, useState } from "react";
 
+export type VideoPlaybackMode = "full" | "loop" | "off";
+
 type YouTubeVideoBackgroundProps = {
   videoId: string | null;
   offsetMs: number;
@@ -10,6 +12,7 @@ type YouTubeVideoBackgroundProps = {
   speed?: number;
   dimPercent?: number; // 0 to 100
   enabled?: boolean;
+  mode?: VideoPlaybackMode;
 };
 
 export function YouTubeVideoBackground({
@@ -20,10 +23,13 @@ export function YouTubeVideoBackground({
   speed = 1,
   dimPercent = 45,
   enabled = true,
+  mode = "full",
 }: YouTubeVideoBackgroundProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
   const [iframeLoaded, setIframeLoaded] = useState(false);
   const lastSyncTimeRef = useRef(0);
+
+  const isVideoActive = Boolean(videoId && enabled && mode !== "off");
 
   // Helper to send postMessage commands to YouTube IFrame
   const sendCommand = (func: string, args: any[] = []) => {
@@ -52,34 +58,36 @@ export function YouTubeVideoBackground({
 
   // Play / Pause synchronizer
   useEffect(() => {
-    if (!iframeLoaded) return;
+    if (!iframeLoaded || !isVideoActive) return;
     if (phase === "playing") {
       sendCommand("playVideo");
     } else {
       sendCommand("pauseVideo");
     }
-  }, [phase, iframeLoaded]);
+  }, [phase, iframeLoaded, isVideoActive]);
 
   // Speed synchronizer
   useEffect(() => {
-    if (!iframeLoaded) return;
+    if (!iframeLoaded || !isVideoActive) return;
     sendCommand("setPlaybackRate", [speed]);
-  }, [speed, iframeLoaded]);
+  }, [speed, iframeLoaded, isVideoActive]);
 
-  // Periodic drift correction (resyncs video to song audio every 2 seconds)
+  // Periodic drift correction (resyncs video to song audio every 2.5 seconds)
   useEffect(() => {
-    if (!iframeLoaded || phase !== "playing") return;
+    if (!iframeLoaded || !isVideoActive || phase !== "playing") return;
     const now = Date.now();
-    if (now - lastSyncTimeRef.current > 2000) {
+    if (now - lastSyncTimeRef.current > 2500) {
       lastSyncTimeRef.current = now;
       const targetSec = Math.max(0, songTime + offsetMs / 1000);
       sendCommand("seekTo", [targetSec, true]);
     }
-  }, [songTime, offsetMs, iframeLoaded, phase]);
+  }, [songTime, offsetMs, iframeLoaded, phase, isVideoActive]);
 
-  if (!videoId || !enabled) return null;
+  if (!isVideoActive || !videoId) return null;
 
-  const embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&iv_load_policy=3&disablekb=1&modestbranding=1&loop=1&playlist=${videoId}&enablejsapi=1&origin=${typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : ""}`;
+  const isLoop = mode === "loop";
+  const loopParams = isLoop ? `&loop=1&playlist=${videoId}` : "";
+  const embedUrl = `https://www.youtube-nocookie.com/embed/${videoId}?autoplay=1&mute=1&controls=0&showinfo=0&rel=0&iv_load_policy=3&disablekb=1&modestbranding=1${loopParams}&enablejsapi=1&origin=${typeof window !== "undefined" ? encodeURIComponent(window.location.origin) : ""}`;
 
   return (
     <div className="yt-video-bg-container" aria-hidden="true">

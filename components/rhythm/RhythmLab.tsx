@@ -23,6 +23,9 @@ import {
   joinMultiplayerRoom,
   type MultiplayerRoom,
 } from "@/lib/firebase/multiplayer";
+import { autoFetchMusicVideo } from "@/lib/video/youtube";
+import { VideoSettingsModal } from "./VideoSettingsModal";
+import type { VideoPlaybackMode } from "./YouTubeVideoBackground";
 import { GameStage } from "./GameStage";
 
 const difficultyLabels: Record<Difficulty, string> = {
@@ -281,6 +284,16 @@ export function RhythmLab() {
   const [soundCheckAudioCurrentTime, setSoundCheckAudioCurrentTime] = useState(0);
   const soundCheckAudioRef = useRef<HTMLAudioElement | null>(null);
   const soundCheckAnimFrameRef = useRef<number>(0);
+
+  // Sound Check Video Background state
+  const [soundCheckVideoId, setSoundCheckVideoId] = useState<string | null>(null);
+  const [soundCheckVideoTitle, setSoundCheckVideoTitle] = useState<string>("");
+  const [soundCheckVideoOffsetMs, setSoundCheckVideoOffsetMs] = useState<number>(0);
+  const [soundCheckVideoDimPercent, setSoundCheckVideoDimPercent] = useState<number>(45);
+  const [soundCheckVideoMode, setSoundCheckVideoMode] = useState<VideoPlaybackMode>("full");
+  const [showSoundCheckVideoModal, setShowSoundCheckVideoModal] = useState<boolean>(false);
+  const [loadingSoundCheckVideo, setLoadingSoundCheckVideo] = useState<boolean>(false);
+
   const [multiplayerMatchRoom, setMultiplayerMatchRoom] = useState<MultiplayerRoom | null>(null);
   const isEnsuringSongRef = useRef<string>("");
 
@@ -515,6 +528,36 @@ export function RhythmLab() {
     };
 
     void load();
+    return () => {
+      isCancelled = true;
+    };
+  }, [selectedSong]);
+
+  // Auto-fetch Music Video for Sound Check
+  useEffect(() => {
+    if (!selectedSong) return;
+    let isCancelled = false;
+    setLoadingSoundCheckVideo(true);
+
+    const loadVideo = async () => {
+      try {
+        const vid = await autoFetchMusicVideo(selectedSong.metadata.artist, selectedSong.metadata.title);
+        if (isCancelled) return;
+        if (vid?.videoId) {
+          setSoundCheckVideoId(vid.videoId);
+          setSoundCheckVideoTitle(vid.title);
+        } else {
+          setSoundCheckVideoId(null);
+          setSoundCheckVideoTitle("");
+        }
+      } catch (err) {
+        console.warn("Sound check video load error:", err);
+      } finally {
+        if (!isCancelled) setLoadingSoundCheckVideo(false);
+      }
+    };
+
+    void loadVideo();
     return () => {
       isCancelled = true;
     };
@@ -1370,7 +1413,7 @@ export function RhythmLab() {
               <div className="soundcheck-lyric-card-body">
                 <strong>
                   {soundCheckLyrics.length > 0
-                    ? `${soundCheckLyrics.length} Baris Lirik (${soundCheckLyricOffsetMs > 0 ? "+" : ""}{soundCheckLyricOffsetMs}ms)`
+                    ? `${soundCheckLyrics.length} Baris Lirik (${soundCheckLyricOffsetMs > 0 ? "+" : ""}${soundCheckLyricOffsetMs}ms)`
                     : "Belum Ada Lirik Tersinkron"}
                 </strong>
                 <button type="button" className="soundcheck-open-studio-btn">
@@ -1382,6 +1425,92 @@ export function RhythmLab() {
                   ? `Disinkronkan oleh: ${soundCheckLyricSyncedBy}`
                   : "Simpan sekali agar semua pemain otomatis sinkron."}
               </small>
+            </div>
+
+            {/* SOUND CHECK MUSIC VIDEO & BACKGROUND SETTINGS CARD */}
+            <div className="soundcheck-video-box">
+              <div className="soundcheck-video-header">
+                <div className="soundcheck-video-left">
+                  <span className="soundcheck-video-icon">🎬</span>
+                  <div>
+                    <b>MUSIC VIDEO YOUTUBE BACKGROUND</b>
+                    <small>Wallpaper video musik dinamis tersinkronisasi</small>
+                  </div>
+                </div>
+                {/* MODE SELECTOR PILLS */}
+                <div className="soundcheck-video-mode-pill-group">
+                  <button
+                    type="button"
+                    className={`soundcheck-mode-pill ${soundCheckVideoMode === "full" ? "active" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSoundCheckVideoMode("full");
+                    }}
+                    title="Full Video: Video musik diputar dari awal sampai akhir sesuai durasi lagu"
+                  >
+                    🎬 Full Video
+                  </button>
+                  <button
+                    type="button"
+                    className={`soundcheck-mode-pill ${soundCheckVideoMode === "loop" ? "active" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSoundCheckVideoMode("loop");
+                    }}
+                    title="Loop: Video diputar berulang-ulang tanpa henti"
+                  >
+                    🔁 Loop
+                  </button>
+                  <button
+                    type="button"
+                    className={`soundcheck-mode-pill ${soundCheckVideoMode === "off" ? "active" : ""}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setSoundCheckVideoMode("off");
+                    }}
+                    title="Off: Matikan video musik background"
+                  >
+                    ❌ Off
+                  </button>
+                </div>
+              </div>
+
+              <div className="soundcheck-video-card-body" onClick={() => setShowSoundCheckVideoModal(true)}>
+                <div className="soundcheck-video-info">
+                  {soundCheckVideoId ? (
+                    <div className="soundcheck-video-thumb-wrap">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={`https://i.ytimg.com/vi/${soundCheckVideoId}/hqdefault.jpg`}
+                        alt="Video thumbnail"
+                        className="soundcheck-thumb-img"
+                      />
+                      <div className="soundcheck-video-meta">
+                        <span className="soundcheck-vid-title">
+                          {soundCheckVideoTitle || `YouTube ID: ${soundCheckVideoId}`}
+                        </span>
+                        <small className="soundcheck-vid-status">
+                          Mode: <b>{soundCheckVideoMode === "full" ? "Full Video (Sync Audio)" : soundCheckVideoMode === "loop" ? "Looping" : "Nonaktif"}</b> · Dim: <b>{soundCheckVideoDimPercent}%</b> · Offset: <b>{soundCheckVideoOffsetMs}ms</b>
+                        </small>
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="soundcheck-no-video">
+                      <span>{loadingSoundCheckVideo ? "Mencari video resmi di YouTube…" : "Belum ada video aktif"}</span>
+                    </div>
+                  )}
+                </div>
+                <button
+                  type="button"
+                  className="soundcheck-open-video-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setShowSoundCheckVideoModal(true);
+                  }}
+                >
+                  PENGATURAN VIDEO ⚙️
+                </button>
+              </div>
             </div>
 
             <div className="setup-launch-row">
@@ -1425,6 +1554,11 @@ export function RhythmLab() {
           offsetMs={offsetMs}
           inputMode={inputMode}
           multiplayerRoom={multiplayerMatchRoom || undefined}
+          videoMode={soundCheckVideoMode}
+          initialVideoId={soundCheckVideoId}
+          initialVideoTitle={soundCheckVideoTitle}
+          initialVideoOffsetMs={soundCheckVideoOffsetMs}
+          initialVideoDimPercent={soundCheckVideoDimPercent}
           onExit={() => {
             setMultiplayerMatchRoom(null);
             setScreen("setup");
@@ -1773,6 +1907,29 @@ export function RhythmLab() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* SOUND CHECK MUSIC VIDEO SETTINGS MODAL */}
+      {showSoundCheckVideoModal && selectedSong && (
+        <VideoSettingsModal
+          songTitle={selectedSong.metadata.title}
+          songArtist={selectedSong.metadata.artist}
+          currentVideoId={soundCheckVideoId}
+          currentVideoTitle={soundCheckVideoTitle}
+          videoOffsetMs={soundCheckVideoOffsetMs}
+          videoDimPercent={soundCheckVideoDimPercent}
+          videoEnabled={soundCheckVideoMode !== "off"}
+          videoMode={soundCheckVideoMode}
+          onUpdateVideo={(id, offset, dim, enabled, title, mode) => {
+            setSoundCheckVideoId(id);
+            if (title) setSoundCheckVideoTitle(title);
+            setSoundCheckVideoOffsetMs(offset);
+            setSoundCheckVideoDimPercent(dim);
+            if (mode) setSoundCheckVideoMode(mode);
+            else if (!enabled) setSoundCheckVideoMode("off");
+          }}
+          onClose={() => setShowSoundCheckVideoModal(false)}
+        />
       )}
 
       {screen !== "game" && (

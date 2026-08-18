@@ -14,7 +14,7 @@ import {
   type MultiplayerRoom,
 } from "@/lib/firebase/multiplayer";
 import { soundFX } from "@/lib/rhythm/soundFx";
-import { YouTubeVideoBackground } from "./YouTubeVideoBackground";
+import { YouTubeVideoBackground, type VideoPlaybackMode } from "./YouTubeVideoBackground";
 import { VideoSettingsModal } from "./VideoSettingsModal";
 import { autoFetchMusicVideo } from "@/lib/video/youtube";
 
@@ -27,6 +27,11 @@ type GameStageProps = {
   offsetMs: number;
   inputMode: InputMode;
   multiplayerRoom?: MultiplayerRoom;
+  videoMode?: VideoPlaybackMode;
+  initialVideoId?: string | null;
+  initialVideoTitle?: string;
+  initialVideoOffsetMs?: number;
+  initialVideoDimPercent?: number;
   onExit: () => void;
 };
 
