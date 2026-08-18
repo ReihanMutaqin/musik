@@ -680,8 +680,8 @@ a { color: inherit; text-decoration: none; }
    GAMEPLAY STAGE
    ========================================================================== */
 
-.game-stage { position: fixed; inset: 0; z-index: 100; overflow: hidden; background: #050508; user-select: none; touch-action: none; }
-.game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; }
+.game-stage { position: fixed; inset: 0; z-index: 100; overflow: hidden; background: #000; user-select: none; touch-action: none; }
+.game-canvas { position: absolute; inset: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
 
 .game-topbar { position: absolute; z-index: 3; top: 0; right: 0; left: 0; display: flex; align-items: center; height: 52px; border-bottom: 1px solid rgba(255,255,255,.08); background: linear-gradient(180deg, rgba(4,4,7,.92), rgba(4,4,7,.6)); }
 .game-quiet-button { height: 100%; padding: 0 16px; border: 0; border-right: 1px solid rgba(255,255,255,.08); background: transparent; color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; font-weight: 600; cursor: pointer; }

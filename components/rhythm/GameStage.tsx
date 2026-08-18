@@ -582,6 +582,11 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
   const [showVideoModal, setShowVideoModal] = useState<boolean>(false);
   const [loadingVideo, setLoadingVideo] = useState<boolean>(false);
 
+  const videoRef = useRef({ videoId, videoEnabled });
+  useEffect(() => {
+    videoRef.current = { videoId, videoEnabled };
+  }, [videoId, videoEnabled]);
+
   // Auto-fetch verified music video for current song
   useEffect(() => {
     let active = true;
@@ -1443,7 +1448,7 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
       // 1. STAGE BACKGROUND & ARENA LIGHTING
       context.save();
       context.clearRect(0, 0, width, height);
-      if (!videoId || !videoEnabled) {
+      if (!videoRef.current.videoId || !videoRef.current.videoEnabled) {
         const background = context.createLinearGradient(0, 0, 0, height);
         background.addColorStop(0, pulseActive ? "#1e0840" : "#07070b");
         background.addColorStop(0.55, pulseActive ? "#0b1544" : "#0a0a0f");
