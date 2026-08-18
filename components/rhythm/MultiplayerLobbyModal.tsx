@@ -7,11 +7,6 @@ import {
   joinMultiplayerRoom,
   leaveRoom,
   startRoomMatch,
-import {
-  createMultiplayerRoom,
-  joinMultiplayerRoom,
-  leaveRoom,
-  startRoomMatch,
   subscribeRoom,
   updatePlayerSlot,
   updateRoomDifficulty,
@@ -379,8 +374,20 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
                 <strong>{currentRoom.id}</strong>
                 <small>{copied ? "✓ TERSALIN!" : "SALIN"}</small>
               </div>
-              <div className="mode-badge-pill">
-                MODE: {currentRoom.mode.toUpperCase()} ({playersList.length}/{currentRoom.maxPlayers} PEMAIN)
+
+              <div className="room-info-right-actions">
+                <button
+                  type="button"
+                  className="mp-invite-friends-btn"
+                  onClick={() => setShowInviteModal(true)}
+                  title="Undang teman dari daftar temanmu langsung ke arena ini"
+                >
+                  <span>⚡ UNDANG TEMAN</span>
+                </button>
+
+                <div className="mode-badge-pill">
+                  MODE: {currentRoom.mode.toUpperCase()} ({playersList.length}/{currentRoom.maxPlayers} PEMAIN)
+                </div>
               </div>
             </div>
 
@@ -506,6 +513,95 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
                   {isAnyDownloading ? "MENUNGGU DOWNLOAD…" : "MULAI PERTANDINGAN ▶"}
                 </button>
               )}
+            </div>
+          </div>
+        )}
+
+        {/* IN-LOBBY INVITE FRIENDS MODAL OVERLAY */}
+        {showInviteModal && currentRoom && (
+          <div className="mp-inlobby-invite-overlay" onClick={() => setShowInviteModal(false)}>
+            <div className="mp-inlobby-invite-card" onClick={(e) => e.stopPropagation()}>
+              <div className="invite-card-header">
+                <div>
+                  <strong>UNDANG TEMAN KE ARENA</strong>
+                  <small>Kirim ajakan bermain langsung ke teman</small>
+                </div>
+                <button type="button" className="invite-close-btn" onClick={() => setShowInviteModal(false)}>✕</button>
+              </div>
+
+              <div className="invite-friends-list">
+                {friends.length === 0 ? (
+                  <div className="invite-empty-state">
+                    <p>Belum ada teman di daftar temanmu.</p>
+                    <small>Buka menu Friends di navigasi atas untuk mencari pemain & menambah teman.</small>
+                  </div>
+                ) : (
+                  friends.map((f) => {
+                    const isAlreadyInRoom = Boolean(currentRoom.players[f.uid]);
+                    const isInvited = invitedUids.has(f.uid);
+
+                    return (
+                      <div key={f.uid} className="invite-friend-row">
+                        <div className="friend-info-left">
+                          {f.photoURL ? (
+                            // eslint-disable-next-line @next/next/no-img-element
+                            <img src={f.photoURL} alt={f.displayName} className="friend-mini-avatar" />
+                          ) : (
+                            <div className="friend-mini-avatar-fallback">{f.displayName.charAt(0).toUpperCase()}</div>
+                          )}
+                          <div className="friend-names">
+                            <b>{f.displayName}</b>
+                            <small>@{f.username}</small>
+                          </div>
+                        </div>
+
+                        {isAlreadyInRoom ? (
+                          <span className="in-room-badge">DI ROOM ✓</span>
+                        ) : (
+                          <button
+                            type="button"
+                            className={`invite-action-btn ${isInvited ? "sent" : ""}`}
+                            disabled={isInvited}
+                            onClick={async () => {
+                              try {
+                                await sendRoomInvite(user, f.uid, currentRoom.id, currentRoom.songName, currentRoom.songArtist);
+                                setInvitedUids((prev) => new Set([...prev, f.uid]));
+                                showToast({
+                                  title: "UNDANGAN TERKIRIM",
+                                  message: `Undangan bermain telah dikirim ke ${f.displayName}`,
+                                  type: "info",
+                                });
+                              } catch (err) {
+                                console.error("Send invite error:", err);
+                              }
+                            }}
+                          >
+                            {isInvited ? "TERKIRIM ✓" : "INVITE ✉️"}
+                          </button>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              <div className="invite-card-footer">
+                <button
+                  type="button"
+                  className="copy-link-btn"
+                  onClick={() => {
+                    const url = `${window.location.origin}?room=${currentRoom.id}`;
+                    void navigator.clipboard.writeText(url);
+                    showToast({
+                      title: "LINK TERSALIN",
+                      message: "Tautan direct room telah disalin ke clipboard!",
+                      type: "info",
+                    });
+                  }}
+                >
+                  🔗 SALIN LINK DIRECT ({currentRoom.id})
+                </button>
+              </div>
             </div>
           </div>
         )}

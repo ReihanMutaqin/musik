@@ -12,8 +12,17 @@ import { LeaderboardModal } from "./LeaderboardModal";
 import { MultiplayerLobbyModal } from "./MultiplayerLobbyModal";
 import { ProfileModal } from "@/components/profile/ProfileModal";
 import { FriendsModal } from "@/components/social/FriendsModal";
-import { subscribeToIncomingFriendRequests } from "@/lib/firebase/friends";
-import { setPlayerDownloadStatus, type MultiplayerRoom } from "@/lib/firebase/multiplayer";
+import {
+  subscribeToIncomingFriendRequests,
+  subscribeToIncomingRoomInvites,
+  respondToRoomInvite,
+  type MultiplayerInvite,
+} from "@/lib/firebase/friends";
+import {
+  setPlayerDownloadStatus,
+  joinMultiplayerRoom,
+  type MultiplayerRoom,
+} from "@/lib/firebase/multiplayer";
 import { GameStage } from "./GameStage";
 
 const difficultyLabels: Record<Difficulty, string> = {
@@ -235,17 +244,25 @@ export function RhythmLab() {
   const [showProfileModal, setShowProfileModal] = useState(false);
   const [showFriendsModal, setShowFriendsModal] = useState(false);
   const [incomingRequestsCount, setIncomingRequestsCount] = useState(0);
+  const [incomingInvites, setIncomingInvites] = useState<MultiplayerInvite[]>([]);
 
-  // Subscribe to incoming friend requests for real-time header badge
+  // Subscribe to incoming friend requests & room invites
   useEffect(() => {
     if (!user) {
       setIncomingRequestsCount(0);
+      setIncomingInvites([]);
       return;
     }
-    const unsub = subscribeToIncomingFriendRequests(user.uid, (reqs) => {
+    const unsubReqs = subscribeToIncomingFriendRequests(user.uid, (reqs) => {
       setIncomingRequestsCount(reqs.length);
     });
-    return () => unsub();
+    const unsubInvites = subscribeToIncomingRoomInvites(user.uid, (invites) => {
+      setIncomingInvites(invites);
+    });
+    return () => {
+      unsubReqs();
+      unsubInvites();
+    };
   }, [user]);
 
   // Sound Check Global Lyric Studio state
@@ -1335,48 +1352,115 @@ export function RhythmLab() {
               </div>
             </div>
 
-            <div className="tuning-grid soundcheck-tuning-grid">
-              <div className="tuning-card">
-                <span>INPUT STYLE</span>
-                <div className="segmented">
-                  <button type="button" className={inputMode === "tap" ? "active" : ""} onClick={() => setInputMode("tap")}>TAP</button>
-                  <button type="button" className={inputMode === "strum" ? "active" : ""} onClick={() => setInputMode("strum")}>FRET + STRUM</button>
+            <div className="chart-selection-grid">
+              <div className="setup-block">
+                <label className="block-label">PILIH INSTRUMEN</label>
+                <div className="selector-pills">
+                  {availableInstruments.map((instrument) => (
+                    <button
+                      key={instrument}
+                      type="button"
+                      className={`selector-pill ${selectedChart?.instrument === instrument ? "active" : ""}`}
+                      onClick={() => handleInstrumentChange(instrument)}
+                    >
+                      <span>{instrumentLabels[instrument]}</span>
+                    </button>
+                  ))}
                 </div>
-                <small>{inputMode === "tap" ? `${currentKeyLabels.join(" ")} langsung memukul not` : `Tahan ${currentKeyLabels.join(" ")} · ${strumKeyLabel} untuk strum`}</small>
               </div>
-              <div className="tuning-card">
-                <span>PRACTICE SPEED</span>
-                <div className="speed-options">{[0.75, 0.9, 1].map((value) => <button key={value} type="button" className={speed === value ? "active" : ""} onClick={() => setSpeed(value)}>{value}×</button>)}</div>
-                <small>Chart dan audio tetap sinkron</small>
-              </div>
-              <div className="tuning-card latency-card">
-                <span>LATENCY OFFSET <b>{offsetMs > 0 ? "+" : ""}{offsetMs} ms</b></span>
-                <input type="range" min="-150" max="150" step="5" value={offsetMs} onChange={(event) => setOffsetMs(Number(event.target.value))} />
-                <small>Geser jika not terasa terlalu cepat / lambat</small>
-              </div>
-              <div className="tuning-card soundcheck-lyric-card" onClick={openSoundCheckLyricStudio}>
-                <div className="soundcheck-lyric-card-top">
-                  <span>GLOBAL SYNCHRONIZED LYRICS</span>
-                  <b className={`soundcheck-source-tag ${soundCheckLyricSource}`}>
-                    {soundCheckLyricSource === "firestore" ? "GLOBAL FIRESTORE ✓" : soundCheckLyrics.length ? "AUTO LRCLIB" : "BELUM DISINKRONKAN"}
-                  </b>
+
+              <div className="setup-block">
+                <label className="block-label">PILIH TINGKAT KESULITAN</label>
+                <div className="selector-pills">
+                  {availableDifficulties.map((difficulty) => (
+                    <button
+                      key={difficulty}
+                      type="button"
+                      className={`selector-pill ${selectedChart?.difficulty === difficulty ? "active" : ""}`}
+                      onClick={() => handleDifficultyChange(difficulty)}
+                    >
+                      <span>{difficultyLabels[difficulty]}</span>
+                    </button>
+                  ))}
                 </div>
-                <div className="soundcheck-lyric-card-body">
-                  <strong>
-                    {soundCheckLyrics.length > 0
-                      ? `${soundCheckLyrics.length} Baris Lirik (${soundCheckLyricOffsetMs > 0 ? "+" : ""}{soundCheckLyricOffsetMs}ms)`
-                      : "Belum Ada Lirik Tersinkron"}
-                  </strong>
-                  <button type="button" className="soundcheck-open-studio-btn">
-                    SYNC & SIMPAN GLOBAL ↗
+              </div>
+            </div>
+
+            <div className="setup-block speed-offset-grid">
+              <div className="control-item">
+                <label>TRACK SPEED: <b>{speed.toFixed(1)}x</b></label>
+                <input
+                  type="range"
+                  min="0.5"
+                  max="2.0"
+                  step="0.1"
+                  value={speed}
+                  onChange={(e) => setSpeed(parseFloat(e.target.value))}
+                />
+              </div>
+
+              <div className="control-item">
+                <label>AUDIO OFFSET: <b>{offsetMs > 0 ? `+${offsetMs}` : offsetMs} ms</b></label>
+                <input
+                  type="range"
+                  min="-200"
+                  max="200"
+                  step="5"
+                  value={offsetMs}
+                  onChange={(e) => setOffsetMs(parseInt(e.target.value, 10))}
+                />
+              </div>
+
+              <div className="control-item input-mode-item">
+                <label>INPUT METHOD</label>
+                <div className="mode-toggle">
+                  <button
+                    type="button"
+                    className={inputMode === "tap" ? "active" : ""}
+                    onClick={() => setInputMode("tap")}
+                  >
+                    TAP ONLY
+                  </button>
+                  <button
+                    type="button"
+                    className={inputMode === "strum" ? "active" : ""}
+                    onClick={() => setInputMode("strum")}
+                  >
+                    FRET + STRUM
                   </button>
                 </div>
-                <small>
-                  {soundCheckLyricSyncedBy
-                    ? `Disinkronkan oleh: ${soundCheckLyricSyncedBy}`
-                    : "Simpan sekali agar semua pemain otomatis sinkron."}
-                </small>
               </div>
+            </div>
+
+            {/* SOUND CHECK GLOBAL LYRIC ACCORDION BANNER */}
+            <div className="soundcheck-lyric-box" onClick={openSoundCheckLyricStudio}>
+              <div className="soundcheck-lyric-header">
+                <div className="soundcheck-lyric-left">
+                  <span className="soundcheck-lyric-icon">🎤</span>
+                  <div>
+                    <b>SINKRONISASI LIRIK GLOBAL</b>
+                    <small>Lirik tersinkronisasi otomatis dengan audio lagu</small>
+                  </div>
+                </div>
+                <b className={`soundcheck-source-tag ${soundCheckLyricSource}`}>
+                  {soundCheckLyricSource === "firestore" ? "GLOBAL FIRESTORE ✓" : soundCheckLyrics.length ? "AUTO LRCLIB" : "BELUM DISINKRONKAN"}
+                </b>
+              </div>
+              <div className="soundcheck-lyric-card-body">
+                <strong>
+                  {soundCheckLyrics.length > 0
+                    ? `${soundCheckLyrics.length} Baris Lirik (${soundCheckLyricOffsetMs > 0 ? "+" : ""}{soundCheckLyricOffsetMs}ms)`
+                    : "Belum Ada Lirik Tersinkron"}
+                </strong>
+                <button type="button" className="soundcheck-open-studio-btn">
+                  SYNC & SIMPAN GLOBAL ↗
+                </button>
+              </div>
+              <small>
+                {soundCheckLyricSyncedBy
+                  ? `Disinkronkan oleh: ${soundCheckLyricSyncedBy}`
+                  : "Simpan sekali agar semua pemain otomatis sinkron."}
+              </small>
             </div>
 
             <div className="setup-launch-row">
@@ -1412,10 +1496,10 @@ export function RhythmLab() {
         </section>
       ) : null}
 
-      {screen === "game" && selectedSong && selectedChart && (
+      {screen === "game" && selectedSong && (selectedChart || selectedSong.charts[0]) ? (
         <GameStage
           song={selectedSong}
-          chart={selectedChart}
+          chart={selectedChart || selectedSong.charts[0]}
           speed={speed}
           offsetMs={offsetMs}
           inputMode={inputMode}
@@ -1425,7 +1509,7 @@ export function RhythmLab() {
             setScreen("setup");
           }}
         />
-      )}
+      ) : null}
 
       {/* Global Modals */}
       {showLeaderboard && (
@@ -1739,6 +1823,50 @@ export function RhythmLab() {
           <span>LOCAL-FIRST ENGINE · POWERED BY CHORUS ENCORE & CLONE HERO CHARTS</span>
           <span>NOT OFFICIALLY AFFILIATED WITH CLONE HERO OR ACTIVISION</span>
         </footer>
+      )}
+
+      {/* INCOMING MULTIPLAYER ARENA INVITATION TOAST */}
+      {incomingInvites.length > 0 && (
+        <div className="mp-incoming-invite-toast">
+          <div className="invite-toast-left">
+            <div className="invite-toast-icon">⚡</div>
+            <div className="invite-toast-copy">
+              <strong>UNDANGAN MULTIPLAYER ARENA</strong>
+              <p>
+                <b>{incomingInvites[0].fromDisplayName}</b> mengundangmu bermain lagu:{" "}
+                <span>{incomingInvites[0].songName}</span> — <span>{incomingInvites[0].songArtist}</span>
+              </p>
+              <small>Kode Room: <b>{incomingInvites[0].roomCode}</b></small>
+            </div>
+          </div>
+          <div className="invite-toast-actions">
+            <button
+              type="button"
+              className="invite-toast-btn decline"
+              onClick={() => void respondToRoomInvite(incomingInvites[0].id)}
+            >
+              TOLAK
+            </button>
+            <button
+              type="button"
+              className="invite-toast-btn accept"
+              onClick={async () => {
+                const inv = incomingInvites[0];
+                await respondToRoomInvite(inv.id);
+                setShowMultiplayer(true);
+                if (user) {
+                  try {
+                    await joinMultiplayerRoom(user, inv.roomCode);
+                  } catch (e) {
+                    console.error("Auto join invited room error:", e);
+                  }
+                }
+              }}
+            >
+              GABUNG ARENA ↗
+            </button>
+          </div>
+        </div>
       )}
 
       {loading && (
