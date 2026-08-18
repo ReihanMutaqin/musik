@@ -31,34 +31,33 @@ export function YouTubeVideoBackground({
   const containerRef = useRef<HTMLDivElement>(null);
   const playerRef = useRef<any>(null);
   const [isReady, setIsReady] = useState(false);
-  const isApiLoadedRef = useRef(false);
 
   // Load YouTube IFrame API script once
   useEffect(() => {
     if (typeof window === "undefined") return;
     if (window.YT && window.YT.Player) {
-      isApiLoadedRef.current = true;
       return;
     }
 
-    const tag = document.createElement("script");
-    tag.src = "https://www.youtube.com/iframe_api";
-    const firstScriptTag = document.getElementsByTagName("script")[0];
-    firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
-
-    window.onYouTubeIframeAPIReady = () => {
-      isApiLoadedRef.current = true;
-    };
+    if (!document.getElementById("yt-iframe-api-script")) {
+      const tag = document.createElement("script");
+      tag.id = "yt-iframe-api-script";
+      tag.src = "https://www.youtube.com/iframe_api";
+      const firstScriptTag = document.getElementsByTagName("script")[0];
+      firstScriptTag?.parentNode?.insertBefore(tag, firstScriptTag);
+    }
   }, []);
 
-  // Initialize or re-create YouTube Player when videoId changes
+  // Initialize YouTube Player
   useEffect(() => {
     if (!videoId || !enabled || typeof window === "undefined") return;
 
     let isMounted = true;
+    let retryTimer: NodeJS.Timeout;
+
     const initPlayer = () => {
       if (!window.YT || !window.YT.Player || !containerRef.current) {
-        setTimeout(initPlayer, 100);
+        retryTimer = setTimeout(initPlayer, 150);
         return;
       }
 
@@ -66,59 +65,70 @@ export function YouTubeVideoBackground({
         try {
           playerRef.current.destroy();
         } catch {}
+        playerRef.current = null;
       }
 
-      const playerElementId = "yt-bg-player-iframe";
-      let iframeHolder = document.getElementById(playerElementId);
-      if (!iframeHolder && containerRef.current) {
-        iframeHolder = document.createElement("div");
-        iframeHolder.id = playerElementId;
-        containerRef.current.appendChild(iframeHolder);
-      }
+      const holder = document.createElement("div");
+      containerRef.current.innerHTML = "";
+      containerRef.current.appendChild(holder);
 
-      playerRef.current = new window.YT.Player(playerElementId, {
-        videoId,
-        playerVars: {
-          autoplay: 0,
-          controls: 0,
-          disablekb: 1,
-          fs: 0,
-          iv_load_policy: 3,
-          loop: 1,
-          modestbranding: 1,
-          playsinline: 1,
-          rel: 0,
-          showinfo: 0,
-          mute: 1,
-          enablejsapi: 1,
-          origin: typeof window !== "undefined" ? window.location.origin : undefined,
-          host: "https://www.youtube.com",
-        },
-        events: {
-          onReady: (event: any) => {
-            if (!isMounted) return;
-            event.target.mute();
-            event.target.setPlaybackRate(speed);
-            setIsReady(true);
-            const targetSec = Math.max(0, songTime + offsetMs / 1000);
-            event.target.seekTo(targetSec, true);
-            if (phase === "playing") {
-              event.target.playVideo();
-            } else {
-              event.target.pauseVideo();
-            }
+      try {
+        playerRef.current = new window.YT.Player(holder, {
+          videoId,
+          playerVars: {
+            autoplay: 1,
+            controls: 0,
+            disablekb: 1,
+            fs: 0,
+            iv_load_policy: 3,
+            loop: 1,
+            playlist: videoId,
+            modestbranding: 1,
+            playsinline: 1,
+            rel: 0,
+            showinfo: 0,
+            mute: 1,
+            enablejsapi: 1,
           },
-          onError: (e: any) => {
-            console.warn("YouTube Player error:", e);
+          events: {
+            onReady: (event: any) => {
+              if (!isMounted) return;
+              try {
+                event.target.mute();
+                event.target.setPlaybackRate(speed);
+                setIsReady(true);
+                const targetSec = Math.max(0, songTime + offsetMs / 1000);
+                event.target.seekTo(targetSec, true);
+                if (phase === "playing") {
+                  event.target.playVideo();
+                } else {
+                  event.target.pauseVideo();
+                }
+              } catch {}
+            },
+            onStateChange: (event: any) => {
+              if (event.data === window.YT?.PlayerState?.ENDED) {
+                try {
+                  event.target.seekTo(0, true);
+                  event.target.playVideo();
+                } catch {}
+              }
+            },
+            onError: (e: any) => {
+              console.warn("YouTube Player error:", e);
+            },
           },
-        },
-      });
+        });
+      } catch (err) {
+        console.warn("Failed to instantiate YT.Player:", err);
+      }
     };
 
     initPlayer();
 
     return () => {
       isMounted = false;
+      clearTimeout(retryTimer);
       if (playerRef.current) {
         try {
           playerRef.current.destroy();
@@ -128,7 +138,7 @@ export function YouTubeVideoBackground({
     };
   }, [videoId, enabled]);
 
-  // Handle phase changes (play / pause)
+  // Sync play / pause
   useEffect(() => {
     if (!playerRef.current || !isReady) return;
     try {
@@ -140,7 +150,7 @@ export function YouTubeVideoBackground({
     } catch {}
   }, [phase, isReady]);
 
-  // Handle speed changes
+  // Sync speed
   useEffect(() => {
     if (!playerRef.current || !isReady) return;
     try {
@@ -148,17 +158,14 @@ export function YouTubeVideoBackground({
     } catch {}
   }, [speed, isReady]);
 
-  // Continuous smart drift compensation (Keeps video perfectly locked to audio)
+  // Sync seek drift
   useEffect(() => {
     if (!playerRef.current || !isReady || phase !== "playing") return;
-
     const targetSec = Math.max(0, songTime + offsetMs / 1000);
     try {
       const currentYtSec = playerRef.current.getCurrentTime() || 0;
       const drift = Math.abs(currentYtSec - targetSec);
-
-      // If drift is more than 0.35s, seek smoothly
-      if (drift > 0.35) {
+      if (drift > 0.4) {
         playerRef.current.seekTo(targetSec, true);
       }
     } catch {}
@@ -168,10 +175,7 @@ export function YouTubeVideoBackground({
 
   return (
     <div className="yt-video-bg-container" aria-hidden="true">
-      {/* Video IFrame Wrapper */}
       <div className="yt-video-frame-wrap" ref={containerRef} />
-
-      {/* Cinematic Darkening & Vignette Overlay */}
       <div
         className="yt-video-dim-overlay"
         style={{
