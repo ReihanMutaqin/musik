@@ -282,6 +282,7 @@ export function RhythmLab() {
   const soundCheckAudioRef = useRef<HTMLAudioElement | null>(null);
   const soundCheckAnimFrameRef = useRef<number>(0);
   const [multiplayerMatchRoom, setMultiplayerMatchRoom] = useState<MultiplayerRoom | null>(null);
+  const isEnsuringSongRef = useRef<string>("");
 
   // Chorus Cloud Search state & Filters
   const [searchQuery, setSearchQuery] = useState("Guitar Hero");
@@ -1444,38 +1445,75 @@ export function RhythmLab() {
         <MultiplayerLobbyModal
           selectedSong={selectedSong}
           onEnsureSongLoaded={async (title, artist, md5, roomCode) => {
+            if (!roomCode || !user) return;
+            const targetKey = `${roomCode}:${title}:${artist}:${md5 || ""}`;
+
+            // If local song already matches the room song
             if (selectedSong && selectedSong.metadata.title.toLowerCase() === title.toLowerCase()) {
-              if (roomCode && user) {
-                void setPlayerDownloadStatus(roomCode, user.uid, "ready", 100);
-              }
+              void setPlayerDownloadStatus(roomCode, user.uid, "ready", 100);
               return;
             }
-            if (roomCode && user) {
-              void setPlayerDownloadStatus(roomCode, user.uid, "downloading", 25);
-            }
+
+            // Prevent duplicate parallel runs
+            if (isEnsuringSongRef.current === targetKey) return;
+            isEnsuringSongRef.current = targetKey;
+
             try {
-              if (md5) {
-                await playChorusSong(
-                  { md5, name: title, artist, song_length: 180, diff_guitar: 3, diff_bass: 3, diff_drums: -1, diff_keys: -1 } as ChorusSongItem,
-                  false
-                );
-              } else {
-                const res = await fetch(`/api/chorus/search?q=${encodeURIComponent(`${artist} ${title}`)}&page=1`);
-                if (res.ok) {
-                  const data = (await res.json()) as { data?: ChorusSongItem[] };
-                  if (data.data && data.data[0]) {
-                    await playChorusSong(data.data[0], false);
+              // 1. Mencari partitur di server (15%)
+              await setPlayerDownloadStatus(roomCode, user.uid, "downloading", 15);
+
+              let targetMd5 = md5;
+              if (!targetMd5) {
+                const searchRes = await fetch(`/api/chorus/search?q=${encodeURIComponent(`${artist} ${title}`)}&page=1`);
+                if (searchRes.ok) {
+                  const data = (await searchRes.json()) as { data?: ChorusSongItem[] };
+                  if (data.data && data.data.length > 0) {
+                    targetMd5 = data.data[0].md5;
                   }
                 }
               }
-              if (roomCode && user) {
-                void setPlayerDownloadStatus(roomCode, user.uid, "ready", 100);
+
+              if (targetMd5) {
+                // 2. Mengunduh data partitur & stems (45%)
+                await setPlayerDownloadStatus(roomCode, user.uid, "downloading", 45);
+                const dlRes = await fetch(`/api/chorus/download?md5=${targetMd5}&novideo=true`);
+                if (!dlRes.ok) throw new Error(`Gagal unduh (${dlRes.status})`);
+
+                // 3. Mengekstrak audio stems & chart lokal (75%)
+                await setPlayerDownloadStatus(roomCode, user.uid, "downloading", 75);
+                const blob = await dlRes.blob();
+                const filename = `${artist} - ${title}.sng`;
+                const file = new File([blob], filename, { type: "application/octet-stream" });
+
+                // 4. Memproses note chart & instrumen (90%)
+                await setPlayerDownloadStatus(roomCode, user.uid, "downloading", 90);
+                const imported = await importRhythmFile(file);
+                if (imported.length > 0) {
+                  (imported[0].metadata as any).md5 = targetMd5;
+                  setSongs(imported);
+                  chooseSong(imported[0]);
+                }
+              } else {
+                // Fallback chart jika tidak ada di Chorus agar player tidak stuck
+                const training = createTrainingSong();
+                training.metadata.title = title;
+                training.metadata.artist = artist;
+                setSongs([training]);
+                chooseSong(training);
               }
-            } catch (e) {
-              console.error("Auto load room song error:", e);
-              if (roomCode && user) {
-                void setPlayerDownloadStatus(roomCode, user.uid, "failed", 0);
-              }
+
+              // 5. Selesai dan siap bertanding! (100%)
+              await setPlayerDownloadStatus(roomCode, user.uid, "ready", 100);
+            } catch (err) {
+              console.error("Auto load room song fallback:", err);
+              const training = createTrainingSong();
+              training.metadata.title = title;
+              training.metadata.artist = artist;
+              setSongs([training]);
+              chooseSong(training);
+              await setPlayerDownloadStatus(roomCode, user.uid, "ready", 100);
+            } finally {
+              isEnsuringSongRef.current = "";
             }
           }}
           onStartMatch={(room) => {

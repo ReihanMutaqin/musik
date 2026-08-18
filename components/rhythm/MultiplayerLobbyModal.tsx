@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { useAuth } from "@/lib/firebase/auth";
 import {
   createMultiplayerRoom,
@@ -48,6 +48,7 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
   const [friends, setFriends] = useState<FriendRecord[]>([]);
   const [showInviteModal, setShowInviteModal] = useState(false);
   const [invitedUids, setInvitedUids] = useState<Set<string>>(new Set());
+  const lastEnsuredSongRef = useRef<string>("");
 
   // Subscribe to user's friends list
   useEffect(() => {
@@ -79,7 +80,9 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
 
       setCurrentRoom(updatedRoom);
 
-      if (updatedRoom.songName && onEnsureSongLoaded) {
+      const songKey = `${updatedRoom.id}:${updatedRoom.songName}:${updatedRoom.songArtist}:${updatedRoom.songMd5 || ""}`;
+      if (updatedRoom.songName && onEnsureSongLoaded && lastEnsuredSongRef.current !== songKey) {
+        lastEnsuredSongRef.current = songKey;
         void onEnsureSongLoaded(updatedRoom.songName, updatedRoom.songArtist, updatedRoom.songMd5, updatedRoom.id);
       }
 
@@ -109,7 +112,11 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
     try {
       const code = await createMultiplayerRoom(
         user,
-        { title: selectedSong.metadata.title, artist: selectedSong.metadata.artist },
+        {
+          title: selectedSong.metadata.title,
+          artist: selectedSong.metadata.artist,
+          md5: (selectedSong.metadata as any).md5 || "",
+        },
         mode,
         hostDifficulty,
         mode === "duel" ? 2 : 5
