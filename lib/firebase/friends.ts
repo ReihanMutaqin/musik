@@ -360,8 +360,8 @@ export async function sendRoomInvite(
   songArtist: string
 ) {
   const inviteId = `${fromUser.uid}_${toUid}_${roomCode}`;
-  const inviteRef = doc(db, "multiplayer_invites", inviteId);
-  await setDoc(inviteRef, {
+  const payload = {
+    id: inviteId,
     fromUid: fromUser.uid,
     fromDisplayName: fromUser.displayName || "Rocker",
     fromPhotoURL: fromUser.photoURL || "",
@@ -369,9 +369,25 @@ export async function sendRoomInvite(
     roomCode: roomCode.toUpperCase(),
     songName,
     songArtist,
-    status: "pending",
+    status: "pending" as const,
     createdAt: Date.now(),
-  });
+  };
+
+  // 1. Direct user inbox subcollection
+  try {
+    const userInboxRef = doc(db, "users", toUid, "invites", inviteId);
+    await setDoc(userInboxRef, payload);
+  } catch (e) {
+    console.warn("Direct user invite write warning:", e);
+  }
+
+  // 2. Root multiplayer_invites collection
+  try {
+    const inviteRef = doc(db, "multiplayer_invites", inviteId);
+    await setDoc(inviteRef, payload);
+  } catch (e) {
+    console.warn("Root multiplayer_invites write warning:", e);
+  }
 }
 
 /**
@@ -381,38 +397,68 @@ export function subscribeToIncomingRoomInvites(
   userId: string,
   onUpdate: (invites: MultiplayerInvite[]) => void
 ): () => void {
-  const q = query(
-    collection(db, "multiplayer_invites"),
-    where("toUid", "==", userId),
-    where("status", "==", "pending")
-  );
+  const map = new Map<string, MultiplayerInvite>();
 
-  return onSnapshot(
-    q,
+  const emit = () => {
+    const list = Array.from(map.values()).filter((i) => i.status === "pending" || !i.status);
+    list.sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    onUpdate(list);
+  };
+
+  // Channel 1: User's private invites subcollection
+  const userInvitesRef = collection(db, "users", userId, "invites");
+  const unsubUser = onSnapshot(
+    userInvitesRef,
     (snapshot) => {
-      const list: MultiplayerInvite[] = [];
       snapshot.forEach((d) => {
-        list.push({ id: d.id, ...(d.data() as Omit<MultiplayerInvite, "id">) });
+        const item = d.data() as MultiplayerInvite;
+        map.set(d.id, { ...item, id: d.id });
       });
-      list.sort((a, b) => b.createdAt - a.createdAt);
-      onUpdate(list);
+      emit();
     },
     (err) => {
-      console.error("Room invites snapshot error:", err);
-      onUpdate([]);
+      console.warn("User invites listener warning:", err);
     }
   );
+
+  // Channel 2: Global multiplayer_invites collection
+  const rootQuery = query(
+    collection(db, "multiplayer_invites"),
+    where("toUid", "==", userId)
+  );
+  const unsubRoot = onSnapshot(
+    rootQuery,
+    (snapshot) => {
+      snapshot.forEach((d) => {
+        const item = d.data() as MultiplayerInvite;
+        map.set(d.id, { ...item, id: d.id });
+      });
+      emit();
+    },
+    (err) => {
+      console.warn("Root multiplayer_invites listener warning:", err);
+    }
+  );
+
+  return () => {
+    unsubUser();
+    unsubRoot();
+  };
 }
 
 /**
  * Dismiss or accept an incoming room invite
  */
-export async function respondToRoomInvite(inviteId: string) {
+export async function respondToRoomInvite(inviteId: string, userId?: string) {
   try {
     const ref = doc(db, "multiplayer_invites", inviteId);
     await deleteDoc(ref);
-  } catch (err) {
-    console.error("respondToRoomInvite error:", err);
+  } catch {}
+  if (userId) {
+    try {
+      const userRef = doc(db, "users", userId, "invites", inviteId);
+      await deleteDoc(userRef);
+    } catch {}
   }
 }
 

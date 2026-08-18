@@ -1801,7 +1801,7 @@ export function RhythmLab() {
             <button
               type="button"
               className="invite-toast-btn decline"
-              onClick={() => void respondToRoomInvite(incomingInvites[0].id)}
+              onClick={() => void respondToRoomInvite(incomingInvites[0].id, user?.uid)}
             >
               TOLAK
             </button>
@@ -1810,7 +1810,7 @@ export function RhythmLab() {
               className="invite-toast-btn accept"
               onClick={async () => {
                 const inv = incomingInvites[0];
-                await respondToRoomInvite(inv.id);
+                await respondToRoomInvite(inv.id, user?.uid);
                 setShowMultiplayer(true);
                 if (user) {
                   try {
