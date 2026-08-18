@@ -8,6 +8,7 @@ import { useAuth, DEFAULT_KEYBINDS } from "@/lib/firebase/auth";
 import { getSongKey, submitScore } from "@/lib/firebase/leaderboard";
 import {
   broadcastLiveStats,
+  forceStartCountdown,
   setPlayerLoaded,
   subscribeRoom,
   type MultiplayerRoom,
@@ -583,6 +584,19 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
     if (!room?.players) return undefined;
     return Object.values(room.players).find((p) => p.uid !== user?.uid);
   }, [room?.players, user?.uid]);
+
+  const isHost = Boolean(user && room && room.hostId === user.uid);
+
+  // Host auto-countdown safety fallback (3.5s max buffer wait so match starts quickly)
+  useEffect(() => {
+    if (!isHost || !room?.id) return;
+    if (room.status === "loading" && !room.startTime) {
+      const autoStartTimer = setTimeout(() => {
+        void forceStartCountdown(room.id);
+      }, 3500);
+      return () => clearTimeout(autoStartTimer);
+    }
+  }, [isHost, room?.id, room?.status, room?.startTime]);
 
   // Group consecutive overdrive notes into Star Power phrases
   const { starPhrases, notePhraseMap } = useMemo(() => {
@@ -2096,7 +2110,80 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
 
       <div className="game-progress" aria-hidden="true"><span style={{ width: `${progress}%` }} /></div>
 
-      {/* KARAOKE FLOATING HUD */}
+      {/* MULTIPLAYER LIVE RACING LEADERBOARD HUD (RACING POSITION BATTLE) */}
+      {room && Object.keys(room.players || {}).length > 1 && (
+        <div className="mp-racing-hud" aria-label="Live Multiplayer Duel Racing Leaderboard">
+          {(() => {
+            const myScore = stats.score;
+            const oppScore = remotePlayer?.liveScore || 0;
+            const myCombo = stats.combo;
+            const oppCombo = remotePlayer?.liveCombo || 0;
+            const diff = myScore - oppScore;
+            const isAhead = diff >= 0;
+            const total = myScore + oppScore;
+            const p1Ratio = total > 0 ? Math.min(85, Math.max(15, Math.round((myScore / total) * 100))) : 50;
+            const myName = profile?.username ? `@${profile.username}` : user?.displayName || "You";
+            const oppName = remotePlayer?.displayName || "Opponent";
+
+            return (
+              <div className="racing-hud-container">
+                {/* Racer 1 (You) */}
+                <div className={`racing-racer-card p1 ${isAhead ? "is-p1-leading" : "is-chasing"}`}>
+                  <div className="racer-rank-badge">
+                    <span className="rank-label">{isAhead ? "1ST" : "2ND"}</span>
+                    <span className="rank-flag">{isAhead ? "🏁" : "🏎️"}</span>
+                  </div>
+                  <div className="racer-details">
+                    <span className="racer-name-tag">{myName} <b>(YOU)</b></span>
+                    <strong className="racer-score-num">{myScore.toLocaleString("id-ID")}</strong>
+                  </div>
+                  <div className="racer-streak-tag">
+                    <span className="streak-fire">🔥</span>
+                    <b>{myCombo}x</b>
+                  </div>
+                </div>
+
+                {/* Central Racing Gap & Live Tug-of-War Bar */}
+                <div className="racing-versus-center">
+                  <div className={`racing-delta-badge ${isAhead ? "ahead" : "behind"}`}>
+                    <span className="delta-sub">{diff === 0 ? "TIED" : isAhead ? "AHEAD" : "BEHIND"}</span>
+                    <strong className="delta-val">
+                      {diff === 0 ? "0 PTS" : `${diff > 0 ? "+" : ""}${diff.toLocaleString("id-ID")} PTS`}
+                    </strong>
+                  </div>
+
+                  {/* Dual Speedometer Progress Bar */}
+                  <div className="racing-tug-track" title="Tug of War Dominance Bar">
+                    <div className="racing-tug-fill p1" style={{ width: `${p1Ratio}%` }} />
+                    <div className="racing-tug-fill p2" style={{ width: `${100 - p1Ratio}%` }} />
+                    <div className="racing-tug-car" style={{ left: `calc(${p1Ratio}% - 10px)` }}>
+                      ⚡
+                    </div>
+                  </div>
+                </div>
+
+                {/* Racer 2 (Opponent) */}
+                <div className={`racing-racer-card p2 ${!isAhead ? "is-p2-leading" : "is-chasing"}`}>
+                  <div className="racer-streak-tag p2">
+                    <span className="streak-fire">🔥</span>
+                    <b>{oppCombo}x</b>
+                  </div>
+                  <div className="racer-details align-right">
+                    <span className="racer-name-tag">{oppName}</span>
+                    <strong className="racer-score-num">{oppScore.toLocaleString("id-ID")}</strong>
+                  </div>
+                  <div className="racer-rank-badge p2">
+                    <span className="rank-label">{!isAhead ? "1ST" : "2ND"}</span>
+                    <span className="rank-flag">{!isAhead ? "🏁" : "🏎️"}</span>
+                  </div>
+                </div>
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* KARAOKE FLOATING CENTER-STAGE HUD */}
       {lyricDisplayMode === "karaoke" && (currentLyricText || nextLyricText) && (
         <div className="karaoke-lyrics-bar" aria-label="Synchronized Song Lyrics">
           {currentLyricText && (
@@ -2248,6 +2335,15 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
               </span>
             ))}
           </div>
+          {isHost && (
+            <button
+              type="button"
+              className="mp-sync-skip-btn"
+              onClick={() => void forceStartCountdown(room.id)}
+            >
+              MULAI SEKARANG (LEWATI TUNGGU) ⚡
+            </button>
+          )}
         </div>
       )}
 

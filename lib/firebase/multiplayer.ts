@@ -340,7 +340,7 @@ export async function setPlayerLoaded(roomCode: string, uid: string, isLoaded = 
 
   const allLoaded = Object.values(players).length > 0 && Object.values(players).every((p) => p.loaded);
 
-  // When all players have buffered their audio and assets, start exact 5.0 second countdown
+  // When all players have buffered their audio, trigger synchronized countdown
   if (allLoaded && (room.status === "loading" || room.status === "lobby")) {
     const launchTimestamp = Date.now() + 5000;
     updates.status = "countdown";
@@ -349,6 +349,23 @@ export async function setPlayerLoaded(roomCode: string, uid: string, isLoaded = 
   }
 
   await updateDoc(roomDocRef, updates);
+}
+
+/**
+ * Host or auto-timer forces the synchronized countdown to start immediately (bypasses buffer wait)
+ */
+export async function forceStartCountdown(roomCode: string) {
+  try {
+    const roomDocRef = doc(db, "rooms", roomCode.toUpperCase());
+    const launchTimestamp = Date.now() + 4000;
+    await updateDoc(roomDocRef, {
+      status: "countdown",
+      startTime: launchTimestamp,
+      countdownUntil: launchTimestamp,
+    });
+  } catch (err) {
+    console.error("forceStartCountdown error:", err);
+  }
 }
 
 /**
