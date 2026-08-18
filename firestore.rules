@@ -11,11 +11,15 @@ service cloud.firestore {
         allow read: if true;
         allow write: if request.auth != null && (request.auth.uid == userId || request.auth.uid == friendId);
       }
+
+      match /invites/{inviteId} {
+        allow read, write: if true;
+      }
     }
 
     // Friend Requests
     match /friend_requests/{requestId} {
-      allow read: if request.auth != null;
+      allow read: if true;
       allow create: if request.auth != null && request.resource.data.fromUid == request.auth.uid;
       allow update: if request.auth != null && (resource.data.toUid == request.auth.uid || resource.data.fromUid == request.auth.uid);
       allow delete: if request.auth != null && (resource.data.toUid == request.auth.uid || resource.data.fromUid == request.auth.uid);
@@ -63,9 +67,8 @@ service cloud.firestore {
 
     // Multiplayer Room Invites
     match /multiplayer_invites/{inviteId} {
-      allow read: if request.auth != null;
-      allow create: if request.auth != null;
-      allow update, delete: if request.auth != null;
+      allow read: if true;
+      allow write: if true;
     }
   }
 }

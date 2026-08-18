@@ -397,6 +397,10 @@ export function subscribeToIncomingRoomInvites(
   userId: string,
   onUpdate: (invites: MultiplayerInvite[]) => void
 ): () => void {
+  if (!userId) {
+    onUpdate([]);
+    return () => {};
+  }
   const map = new Map<string, MultiplayerInvite>();
 
   const emit = () => {

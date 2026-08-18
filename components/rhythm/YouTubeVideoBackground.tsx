@@ -90,7 +90,9 @@ export function YouTubeVideoBackground({
           rel: 0,
           showinfo: 0,
           mute: 1,
-          origin: window.location.origin,
+          enablejsapi: 1,
+          origin: typeof window !== "undefined" ? window.location.origin : undefined,
+          host: "https://www.youtube.com",
         },
         events: {
           onReady: (event: any) => {
