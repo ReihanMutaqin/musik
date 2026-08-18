@@ -1214,17 +1214,24 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
     setProgress(0);
     setElapsed(startOffsetSeconds);
     activePulseUntilRef.current = 0;
+    phaseRef.current = "playing";
+    setPhase("playing");
     audio.forEach((element) => {
       element.currentTime = startOffsetSeconds;
       element.playbackRate = speed;
-    });
-    void Promise.all(audio.map((element) => element.play())).then(() => {
-      phaseRef.current = "playing";
-      setPhase("playing");
-    }).catch(() => {
-      publishStats({ ...statsRef.current, feedback: "TAP TO RETRY" });
+      element.play().catch(() => {});
     });
   }, [publishStats, speed, starPhrases]);
+
+  // Instant Launch for Single Player on Mount
+  useEffect(() => {
+    if (!room && phaseRef.current === "ready") {
+      const timer = setTimeout(() => {
+        launch(0);
+      }, 50);
+      return () => clearTimeout(timer);
+    }
+  }, [room, launch]);
 
   // Real-time Synchronized Multiplayer Countdown & Downbeat Launch
   useEffect(() => {
