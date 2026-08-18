@@ -1,6 +1,7 @@
 "use client";
 
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from "react";
+import { AuthProvider } from "@/lib/firebase/auth";
 
 export type ThemeMode = "light" | "dark" | "system";
 
@@ -124,7 +125,13 @@ export function AppProviders({ children }: { children: React.ReactNode }) {
     [settings, updateSettings, resetSettings, hydrated],
   );
 
-  return <SettingsContext.Provider value={value}>{children}</SettingsContext.Provider>;
+  return (
+    <SettingsContext.Provider value={value}>
+      <AuthProvider>
+        {children}
+      </AuthProvider>
+    </SettingsContext.Provider>
+  );
 }
 
 export function useAppSettings() {

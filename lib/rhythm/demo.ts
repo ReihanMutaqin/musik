@@ -13,13 +13,15 @@ function createNotes(difficulty: Difficulty) {
   const interval = difficulty === "easy" ? 0.75 : difficulty === "medium" ? 0.625 : 0.5;
   for (let index = 0; 2 + index * interval < 19; index += 1) {
     const lanes = pattern[index % pattern.length];
+    const isHold = index % 4 === 3 || index % 7 === 0;
+    const duration = isHold ? (index % 7 === 0 ? interval * 2.2 : interval * 1.3) : 0;
     notes.push({
       id: index,
       tick: index * 192,
       time: 2 + index * interval,
-      duration: index % 7 === 0 ? interval * 0.72 : 0,
+      duration,
       lanes,
-      overdrive: index >= 8 && index <= 14 || index >= 25 && index <= 31,
+      overdrive: (index >= 8 && index <= 14) || (index >= 25 && index <= 31),
     });
   }
   return notes;

@@ -36,6 +36,8 @@ export type SongMetadata = {
   sourceName: string;
 };
 
+import type { TimedLyricLine } from "./lyrics";
+
 export type SongAsset = {
   name: string;
   blob: Blob;
@@ -47,7 +49,8 @@ export type ImportedSong = {
   charts: PlayableChart[];
   audio: SongAsset[];
   artwork?: SongAsset;
-  sourceType: "sng" | "zip";
+  lyrics?: TimedLyricLine[];
+  sourceType: "sng" | "zip" | "audio" | "cloud";
   fileCount: number;
 };
 
