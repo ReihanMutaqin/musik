@@ -46,6 +46,12 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Global Synced Music Videos (Community Verified YouTube MV & Offsets)
+    match /global_videos/{songKey} {
+      allow read: if true;
+      allow write: if true;
+    }
     
     // Multiplayer Rooms (1v1, Band Co-op, FFA up to 5 players)
     match /rooms/{roomId} {

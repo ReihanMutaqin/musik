@@ -14,6 +14,9 @@ import {
   type MultiplayerRoom,
 } from "@/lib/firebase/multiplayer";
 import { soundFX } from "@/lib/rhythm/soundFx";
+import { YouTubeVideoBackground } from "./YouTubeVideoBackground";
+import { VideoSettingsModal } from "./VideoSettingsModal";
+import { autoFetchMusicVideo } from "@/lib/video/youtube";
 
 type InputMode = "tap" | "strum";
 
@@ -569,6 +572,38 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
   );
   const [lyricSyncActiveTab, setLyricSyncActiveTab] = useState<"calibrate" | "search" | "paste">("calibrate");
   const objectUrls = useMemo(() => song.audio.map((asset) => URL.createObjectURL(asset.blob)), [song]);
+
+  // Smart YouTube Music Video Background State
+  const [videoId, setVideoId] = useState<string | null>(null);
+  const [videoTitle, setVideoTitle] = useState<string>("");
+  const [videoOffsetMs, setVideoOffsetMs] = useState<number>(0);
+  const [videoDimPercent, setVideoDimPercent] = useState<number>(45);
+  const [videoEnabled, setVideoEnabled] = useState<boolean>(true);
+  const [showVideoModal, setShowVideoModal] = useState<boolean>(false);
+  const [loadingVideo, setLoadingVideo] = useState<boolean>(false);
+
+  // Auto-fetch verified music video for current song
+  useEffect(() => {
+    let active = true;
+    const fetchVideo = async () => {
+      setLoadingVideo(true);
+      try {
+        const vid = await autoFetchMusicVideo(song.metadata.artist, song.metadata.title);
+        if (active && vid?.videoId) {
+          setVideoId(vid.videoId);
+          setVideoTitle(vid.title);
+        }
+      } catch (err) {
+        console.warn("Auto video fetch failed:", err);
+      } finally {
+        if (active) setLoadingVideo(false);
+      }
+    };
+    void fetchVideo();
+    return () => {
+      active = false;
+    };
+  }, [song.metadata.artist, song.metadata.title]);
 
   // Subscribe to multiplayer room updates
   useEffect(() => {
@@ -2069,6 +2104,17 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
 
   return (
     <main className="game-stage">
+      {/* SMART YOUTUBE MUSIC VIDEO BACKGROUND */}
+      <YouTubeVideoBackground
+        videoId={videoId}
+        offsetMs={videoOffsetMs}
+        phase={phase}
+        songTime={songTime()}
+        speed={speed}
+        dimPercent={videoDimPercent}
+        enabled={videoEnabled}
+      />
+
       <canvas ref={canvasRef} className="game-canvas" aria-label="Five lane rhythm game highway" />
 
       <header className="game-topbar">
@@ -2080,6 +2126,24 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
           <strong>{song.metadata.title}</strong>
         </div>
         <div className="game-topbar-right">
+          {/* MUSIC VIDEO TOGGLE & SETTINGS BUTTON */}
+          <button
+            className={`game-quiet-button video-toggle ${videoId && videoEnabled ? "video-active" : ""}`}
+            type="button"
+            onClick={() => setShowVideoModal(true)}
+            title="Pengaturan Music Video YouTube Background"
+          >
+            <span className="mv-icon">🎬</span>
+            <span className="video-btn-text">
+              {loadingVideo
+                ? "MEMUAT MV…"
+                : videoId
+                ? (videoEnabled ? "MV AKTIF" : "MV OFF")
+                : "CARI MV ＋"}
+            </span>
+            <span className="sync-cog">⚙️</span>
+          </button>
+
           <button
             className={`game-quiet-button lyrics-toggle ${lyrics.length > 0 && lyricDisplayMode !== "off" ? "lyrics-active" : ""}`}
             type="button"
@@ -2656,6 +2720,27 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
             </div>
           </div>
         </div>
+      )}
+
+      {/* MUSIC VIDEO SETTINGS & CALIBRATION MODAL */}
+      {showVideoModal && (
+        <VideoSettingsModal
+          songTitle={song.metadata.title}
+          songArtist={song.metadata.artist}
+          currentVideoId={videoId}
+          currentVideoTitle={videoTitle}
+          videoOffsetMs={videoOffsetMs}
+          videoDimPercent={videoDimPercent}
+          videoEnabled={videoEnabled}
+          onUpdateVideo={(id, offset, dim, enabled, title) => {
+            setVideoId(id);
+            if (title) setVideoTitle(title);
+            setVideoOffsetMs(offset);
+            setVideoDimPercent(dim);
+            setVideoEnabled(enabled);
+          }}
+          onClose={() => setShowVideoModal(false)}
+        />
       )}
     </main>
   );
