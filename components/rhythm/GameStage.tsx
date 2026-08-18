@@ -1435,12 +1435,15 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
 
       // 1. STAGE BACKGROUND & ARENA LIGHTING
       context.save();
-      const background = context.createLinearGradient(0, 0, 0, height);
-      background.addColorStop(0, pulseActive ? "#1e0840" : "#07070b");
-      background.addColorStop(0.55, pulseActive ? "#0b1544" : "#0a0a0f");
-      background.addColorStop(1, "#020204");
-      context.fillStyle = background;
-      context.fillRect(0, 0, width, height);
+      context.clearRect(0, 0, width, height);
+      if (!videoId || !videoEnabled) {
+        const background = context.createLinearGradient(0, 0, 0, height);
+        background.addColorStop(0, pulseActive ? "#1e0840" : "#07070b");
+        background.addColorStop(0.55, pulseActive ? "#0b1544" : "#0a0a0f");
+        background.addColorStop(1, "#020204");
+        context.fillStyle = background;
+        context.fillRect(0, 0, width, height);
+      }
       context.restore();
 
       // Highway Dimensions Configuration
