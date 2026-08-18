@@ -2248,7 +2248,7 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
       )}
 
       {/* KARAOKE FLOATING CENTER-STAGE HUD */}
-      {lyricDisplayMode === "karaoke" && (currentLyricText || nextLyricText) && (
+      {phase === "playing" && lyricDisplayMode === "karaoke" && (currentLyricText || nextLyricText) && (
         <div className="karaoke-lyrics-bar" aria-label="Synchronized Song Lyrics">
           {currentLyricText && (
             <div className="karaoke-current-wrap" onClick={() => setShowLyricSyncModal(true)} title="Klik untuk kalibrasi offset lirik">
