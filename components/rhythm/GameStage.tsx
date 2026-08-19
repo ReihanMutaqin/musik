@@ -16,6 +16,7 @@ import {
   subscribeRoom,
   type MultiplayerRoom,
 } from "@/lib/firebase/multiplayer";
+import { p2p, type P2PMessage } from "@/lib/webrtc/p2p";
 import { soundFX } from "@/lib/rhythm/soundFx";
 import { YouTubeVideoBackground, type VideoPlaybackMode } from "./YouTubeVideoBackground";
 import { VideoSettingsModal } from "./VideoSettingsModal";
@@ -659,6 +660,58 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
     }
   }, [isHost, room?.id, room?.status, room?.startTime]);
 
+  // Direct WebRTC P2P DataChannel setup (0ms latency, unlimited free live updates)
+  useEffect(() => {
+    if (!room?.id || !user?.uid) return;
+
+    let isSubscribed = true;
+
+    const initWebRTC = async () => {
+      await p2p.init(room.id, user.uid, (msg: P2PMessage) => {
+        if (!isSubscribed) return;
+
+        if (msg.type === "stats") {
+          setRoom((prev) => {
+            if (!prev || !prev.players) return prev;
+            const updatedPlayers = { ...prev.players };
+            if (updatedPlayers[msg.uid]) {
+              updatedPlayers[msg.uid] = {
+                ...updatedPlayers[msg.uid],
+                liveScore: msg.liveScore,
+                liveCombo: msg.liveCombo,
+                finished: Boolean(msg.finished),
+                finalAccuracy: msg.finalAccuracy ?? updatedPlayers[msg.uid].finalAccuracy,
+              };
+            }
+            return { ...prev, players: updatedPlayers };
+          });
+        } else if (msg.type === "pause") {
+          audioRef.current.forEach((audio) => {
+            audio.pause();
+            audio.currentTime = msg.pausedAt;
+          });
+          phaseRef.current = "paused";
+          setPhase("paused");
+        } else if (msg.type === "resume") {
+          const diff = msg.resumeCountdownUntil - Date.now();
+          if (diff > 0) {
+            setMultiplayerResumeCountdown(Math.ceil(diff / 1000));
+          }
+        }
+      });
+
+      const playerUids = Object.keys(room.players || {});
+      p2p.connectToPeers(playerUids);
+    };
+
+    void initWebRTC();
+
+    return () => {
+      isSubscribed = false;
+      p2p.destroy();
+    };
+  }, [room?.id, user?.uid]);
+
   // Group consecutive overdrive notes into Star Power phrases
   const { starPhrases, notePhraseMap } = useMemo(() => {
     const phrases: StarPhrase[] = [];
@@ -1119,7 +1172,18 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
 
     flashRef.current.push(...note.lanes.map((lane) => ({ lane, until: performance.now() + 180, hit: true })));
     publishStats(next);
-  }, [notePhraseMap, publishStats, songTime]);
+
+    // Direct WebRTC P2P broadcast for instant opponent feedback (0 server cost, 0 quota!)
+    if (multiplayerRoom?.id && user) {
+      p2p.broadcast({
+        type: "stats",
+        uid: user.uid,
+        liveScore: next.score,
+        liveCombo: next.combo,
+        finished: false,
+      });
+    }
+  }, [multiplayerRoom?.id, notePhraseMap, publishStats, user]);
 
   const findCandidate = useCallback((now: number, lane?: number) => {
     let best: RhythmNote | undefined;
@@ -1205,8 +1269,20 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
       if (phaseRef.current === "playing") {
         const pausedPos = songTime();
         audioRef.current.forEach((audio) => audio.pause());
+        // Instant P2P broadcast (< 20ms latency)
+        p2p.broadcast({
+          type: "pause",
+          pausedBy: user.displayName || "Player",
+          pausedAt: pausedPos,
+        });
         void pauseRoomMatch(room.id, user.displayName || "Player", pausedPos);
       } else if (phaseRef.current === "paused") {
+        const resumeTimestamp = Date.now() + 3500;
+        p2p.broadcast({
+          type: "resume",
+          resumeCountdownUntil: resumeTimestamp,
+          pausedAt: room.pausedAt ?? songTime(),
+        });
         void resumeRoomMatch(room.id, room.pausedAt ?? songTime());
       }
       return;
