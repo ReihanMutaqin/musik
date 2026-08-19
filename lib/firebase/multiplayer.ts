@@ -306,7 +306,7 @@ export async function setPlayerDownloadStatus(
 }
 
 /**
- * Host initiates match transition: enters "loading" phase so all players preload audio and assets
+ * Host initiates match: triggers synchronized 4.5s countdown for all players simultaneously
  */
 export async function startRoomMatch(roomCode: string) {
   const roomDocRef = doc(db, "rooms", roomCode.toUpperCase());
@@ -314,15 +314,16 @@ export async function startRoomMatch(roomCode: string) {
   if (!snap.exists()) return;
 
   const room = snap.data() as MultiplayerRoom;
+  const launchTimestamp = Date.now() + 4500;
   const updates: Record<string, unknown> = {
-    status: "loading",
-    countdownUntil: null,
-    startTime: null,
+    status: "countdown",
+    countdownUntil: launchTimestamp,
+    startTime: launchTimestamp,
   };
 
-  // Reset all players loaded and in-game stats
+  // Reset all players in-game stats
   Object.keys(room.players || {}).forEach((uid) => {
-    updates[`players.${uid}.loaded`] = false;
+    updates[`players.${uid}.loaded`] = true;
     updates[`players.${uid}.liveScore`] = 0;
     updates[`players.${uid}.liveCombo`] = 0;
     updates[`players.${uid}.finished`] = false;
@@ -332,8 +333,7 @@ export async function startRoomMatch(roomCode: string) {
 }
 
 /**
- * Player signals that their chart and audio are 100% loaded and buffered.
- * If all players in the room are ready, triggers the synchronized 5-second countdown!
+ * Player signals that their chart and audio are loaded
  */
 export async function setPlayerLoaded(roomCode: string, uid: string, isLoaded = true) {
   const roomDocRef = doc(db, "rooms", roomCode.toUpperCase());
@@ -341,23 +341,21 @@ export async function setPlayerLoaded(roomCode: string, uid: string, isLoaded = 
   if (!snap.exists()) return;
 
   const room = snap.data() as MultiplayerRoom;
-  const players = { ...room.players };
-  if (players[uid]) {
-    players[uid].loaded = isLoaded;
-  }
-
   const updates: Record<string, unknown> = {
     [`players.${uid}.loaded`]: isLoaded,
   };
 
-  const allLoaded = Object.values(players).length > 0 && Object.values(players).every((p) => p.loaded);
-
-  // When all players have buffered their audio, trigger synchronized countdown
-  if (allLoaded && (room.status === "loading" || room.status === "lobby")) {
-    const launchTimestamp = Date.now() + 5000;
-    updates.status = "countdown";
-    updates.startTime = launchTimestamp;
-    updates.countdownUntil = launchTimestamp;
+  // Only trigger countdown if not already in countdown/playing state
+  if (!room.startTime && (room.status === "loading" || room.status === "lobby")) {
+    const players = { ...room.players };
+    if (players[uid]) players[uid].loaded = isLoaded;
+    const allLoaded = Object.values(players).length > 0 && Object.values(players).every((p) => p.loaded);
+    if (allLoaded) {
+      const launchTimestamp = Date.now() + 4500;
+      updates.status = "countdown";
+      updates.startTime = launchTimestamp;
+      updates.countdownUntil = launchTimestamp;
+    }
   }
 
   await updateDoc(roomDocRef, updates);

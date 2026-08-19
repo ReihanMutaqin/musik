@@ -649,17 +649,6 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
 
   const isHost = Boolean(user && room && room.hostId === user.uid);
 
-  // Host auto-countdown safety fallback (3.5s max buffer wait so match starts quickly)
-  useEffect(() => {
-    if (!isHost || !room?.id) return;
-    if (room.status === "loading" && !room.startTime) {
-      const autoStartTimer = setTimeout(() => {
-        void forceStartCountdown(room.id);
-      }, 3500);
-      return () => clearTimeout(autoStartTimer);
-    }
-  }, [isHost, room?.id, room?.status, room?.startTime]);
-
   // Direct WebRTC P2P DataChannel setup (0ms latency, unlimited free live updates)
   useEffect(() => {
     if (!room?.id || !user?.uid) return;
