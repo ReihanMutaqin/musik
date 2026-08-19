@@ -79,6 +79,8 @@ export async function createMultiplayerRoom(
     difficulty: initialDifficulty,
     ready: true,
     loaded: false,
+    downloadStatus: "ready",
+    downloadProgress: 100,
     liveScore: 0,
     liveCombo: 0,
     finished: false,
@@ -153,6 +155,8 @@ export async function joinMultiplayerRoom(
     difficulty: room.difficulty || "expert", // Inherits host's room difficulty!
     ready: false,
     loaded: false,
+    downloadStatus: "idle",
+    downloadProgress: 0,
     liveScore: 0,
     liveCombo: 0,
     finished: false,

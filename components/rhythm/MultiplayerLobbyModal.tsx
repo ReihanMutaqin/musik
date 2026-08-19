@@ -185,6 +185,14 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
     if (!currentRoom) return;
     const me = currentRoom.players[user.uid];
     if (!me) return;
+    if (me.downloadStatus !== "ready") {
+      showToast({
+        title: "MEMUAT LAGU...",
+        message: "Tunggu partitur & audio lagu selesai dimuat (100%) sebelum READY.",
+        type: "warning",
+      });
+      return;
+    }
     await updatePlayerSlot(currentRoom.id, user.uid, { ready: !me.ready });
   };
 
@@ -218,7 +226,8 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
   const playersList: RoomPlayer[] = currentRoom ? Object.values(currentRoom.players) : [];
   const downloadingPlayer = playersList.find((p) => p.downloadStatus === "downloading");
   const isAnyDownloading = Boolean(downloadingPlayer);
-  const allReady = playersList.length > 0 && playersList.every((p) => p.ready && p.downloadStatus !== "downloading");
+  const allSongsReady = playersList.length > 0 && playersList.every((p) => p.downloadStatus === "ready");
+  const allReady = allSongsReady && playersList.every((p) => p.ready);
 
   return (
     <div className="modal-backdrop" onClick={onClose}>
@@ -507,20 +516,37 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
               <button
                 type="button"
                 className={`mp-action-btn ${currentRoom.players[user.uid]?.ready ? "ready-active" : "primary"}`}
+                disabled={currentRoom.players[user.uid]?.downloadStatus === "downloading" || currentRoom.players[user.uid]?.downloadStatus === "failed"}
                 onClick={handleToggleReady}
               >
-                {currentRoom.players[user.uid]?.ready ? "BATALKAN READY" : "SIAP / READY ✓"}
+                {currentRoom.players[user.uid]?.downloadStatus === "downloading"
+                  ? `MENGUNDUH LAGU (${currentRoom.players[user.uid]?.downloadProgress || 0}%)`
+                  : currentRoom.players[user.uid]?.downloadStatus === "failed"
+                  ? "GAGAL UNDUH ✕"
+                  : currentRoom.players[user.uid]?.ready
+                  ? "BATALKAN READY"
+                  : "SIAP / READY ✓"}
               </button>
 
               {isHost && (
                 <button
                   type="button"
                   className="mp-action-btn launch"
-                  disabled={!allReady || playersList.length < 1 || isAnyDownloading}
+                  disabled={!allReady || playersList.length < 1 || isAnyDownloading || !allSongsReady}
                   onClick={handleStartMatch}
-                  title={isAnyDownloading ? "Menunggu pemain selesai mengunduh lagu..." : !allReady ? "Menunggu semua pemain READY" : "Mulai pertandingan!"}
+                  title={
+                    !allSongsReady
+                      ? "Menunggu semua pemain selesai memuat lagu yang sama..."
+                      : !allReady
+                      ? "Menunggu semua pemain klik READY"
+                      : "Mulai pertandingan!"
+                  }
                 >
-                  {isAnyDownloading ? "MENUNGGU DOWNLOAD…" : "MULAI PERTANDINGAN ▶"}
+                  {!allSongsReady
+                    ? "MENUNGGU SINKRONISASI LAGU…"
+                    : !allReady
+                    ? "MENUNGGU SEMUA READY…"
+                    : "MULAI PERTANDINGAN ▶"}
                 </button>
               )}
             </div>
