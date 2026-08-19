@@ -110,12 +110,14 @@ export function MultiplayerLobbyModal({ selectedSong, onEnsureSongLoaded, onStar
     setLoading(true);
     setError("");
     try {
+      const isDemoSong = selectedSong.id === "training-demo" || selectedSong.metadata.title.toLowerCase().includes("different");
+      const songMd5 = isDemoSong ? "DEMO_BAND_MAID_DIFFERENT" : (selectedSong.metadata as any).md5 || "";
       const code = await createMultiplayerRoom(
         user,
         {
           title: selectedSong.metadata.title,
           artist: selectedSong.metadata.artist,
-          md5: (selectedSong.metadata as any).md5 || "",
+          md5: songMd5,
         },
         mode,
         hostDifficulty,

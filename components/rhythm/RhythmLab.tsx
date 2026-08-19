@@ -438,8 +438,11 @@ export function RhythmLab() {
       const filename = `${item.artist} - ${item.name}.sng`;
       const file = new File([blob], filename, { type: "application/octet-stream" });
       const imported = await importRhythmFile(file);
-      setSongs(imported);
-      chooseSong(imported[0]);
+      if (imported.length > 0) {
+        (imported[0].metadata as any).md5 = item.md5;
+        setSongs(imported);
+        chooseSong(imported[0]);
+      }
 
       if (autoOpenMultiplayer) {
         setShowMultiplayer(true);
@@ -1582,8 +1585,21 @@ export function RhythmLab() {
             if (!roomCode || !user) return;
             const targetKey = `${roomCode}:${title}:${artist}:${md5 || ""}`;
 
-            // If local song already matches the room song
-            if (selectedSong && selectedSong.metadata.title.toLowerCase() === title.toLowerCase()) {
+            // Case 1: Built-in Demo / Starter Song
+            if (md5 === "DEMO_BAND_MAID_DIFFERENT" || title.toLowerCase().includes("different")) {
+              const training = createTrainingSong();
+              setSongs([training]);
+              chooseSong(training);
+              await setPlayerDownloadStatus(roomCode, user.uid, "ready", 100);
+              return;
+            }
+
+            // Case 2: Local song already matches the room song & MD5
+            if (
+              selectedSong &&
+              (selectedSong.metadata.title.toLowerCase() === title.toLowerCase() ||
+                (md5 && (selectedSong.metadata as any).md5 === md5))
+            ) {
               void setPlayerDownloadStatus(roomCode, user.uid, "ready", 100);
               return;
             }
@@ -1654,27 +1670,33 @@ export function RhythmLab() {
             setMultiplayerMatchRoom(room);
             setShowMultiplayer(false);
 
-            if (selectedSong) {
+            const isDemo = room.songMd5 === "DEMO_BAND_MAID_DIFFERENT" || room.songName.toLowerCase().includes("different");
+            const targetSong = isDemo
+              ? (songs.find((s) => s.id === "training-demo" || s.metadata.title.toLowerCase().includes("different")) || createTrainingSong())
+              : (songs.find((s) => s.metadata.title.toLowerCase() === room.songName.toLowerCase() || (room.songMd5 && (s.metadata as any).md5 === room.songMd5)) || selectedSong || songs[0]);
+
+            if (targetSong) {
+              chooseSong(targetSong);
               const myPlayer = user ? room.players[user.uid] : undefined;
               const targetInst = myPlayer?.instrument || "guitar";
               const targetDiff = room.difficulty || myPlayer?.difficulty || "expert";
 
               // 1. Exact match (instrument + difficulty)
-              let bestChart = selectedSong.charts.find(
+              let bestChart = targetSong.charts.find(
                 (c) => c.instrument === targetInst && c.difficulty === targetDiff
               );
 
               // 2. Match instrument only
               if (!bestChart) {
-                bestChart = selectedSong.charts.find((c) => c.instrument === targetInst);
+                bestChart = targetSong.charts.find((c) => c.instrument === targetInst);
               }
               // 3. Match difficulty only
               if (!bestChart) {
-                bestChart = selectedSong.charts.find((c) => c.difficulty === targetDiff);
+                bestChart = targetSong.charts.find((c) => c.difficulty === targetDiff);
               }
               // 4. Fallback to first chart
-              if (!bestChart && selectedSong.charts.length > 0) {
-                bestChart = selectedSong.charts[0];
+              if (!bestChart && targetSong.charts.length > 0) {
+                bestChart = targetSong.charts[0];
               }
 
               if (bestChart) {
