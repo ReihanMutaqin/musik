@@ -9,6 +9,9 @@ import { getSongKey, submitScore } from "@/lib/firebase/leaderboard";
 import {
   broadcastLiveStats,
   forceStartCountdown,
+  leaveRoom,
+  pauseRoomMatch,
+  resumeRoomMatch,
   setPlayerLoaded,
   subscribeRoom,
   type MultiplayerRoom,
@@ -548,11 +551,13 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
   const statsRef = useRef<Stats>({ ...initialStats });
   const phaseRef = useRef<"ready" | "playing" | "paused" | "finished">("ready");
   const lastHudUpdateRef = useRef(0);
+  const lastBroadcastTimeRef = useRef(0);
   const activePulseUntilRef = useRef(0);
   const whammyActiveUntilRef = useRef(0);
   const flashRef = useRef<{ lane: number; until: number; hit: boolean }[]>([]);
   const [phase, setPhase] = useState<"ready" | "playing" | "paused" | "finished">("ready");
   const [multiplayerCountdown, setMultiplayerCountdown] = useState<number | null>(null);
+  const [multiplayerResumeCountdown, setMultiplayerResumeCountdown] = useState<number | null>(null);
   const [stats, setStats] = useState<Stats>({ ...initialStats });
   const [progress, setProgress] = useState(0);
   const [elapsed, setElapsed] = useState(0);
@@ -1045,10 +1050,9 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
     const canvas = canvasRef.current;
     const cWidth = canvas?.clientWidth ?? 800;
     const cHeight = canvas?.clientHeight ?? 600;
-    const isMulti = Boolean(room && Object.keys(room.players || {}).length > 1);
-    const p1CenterX = isMulti ? cWidth * 0.28 : cWidth / 2;
-    const p1TopWidth = isMulti ? Math.min(cWidth * 0.22, 220) : Math.min(cWidth * 0.40, 360);
-    const p1BottomWidth = isMulti ? Math.min(cWidth * 0.40, 380) : Math.min(cWidth * 0.72, 620);
+    const p1CenterX = cWidth / 2;
+    const p1TopWidth = Math.min(cWidth * 0.40, 360);
+    const p1BottomWidth = Math.min(cWidth * 0.72, 620);
     const hitY = cHeight * 0.82;
 
     note.lanes.filter((lane) => lane >= 0).forEach((lane) => {
@@ -1115,10 +1119,7 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
 
     flashRef.current.push(...note.lanes.map((lane) => ({ lane, until: performance.now() + 180, hit: true })));
     publishStats(next);
-    if (multiplayerRoom?.id && user) {
-      void broadcastLiveStats(multiplayerRoom.id, user.uid, next.score, next.combo, false);
-    }
-  }, [multiplayerRoom?.id, notePhraseMap, publishStats, room, songTime, user]);
+  }, [notePhraseMap, publishStats, songTime]);
 
   const findCandidate = useCallback((now: number, lane?: number) => {
     let best: RhythmNote | undefined;
@@ -1200,6 +1201,17 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
   }, [publishStats, songTime]);
 
   const pause = useCallback(() => {
+    if (room?.id && user) {
+      if (phaseRef.current === "playing") {
+        const pausedPos = songTime();
+        audioRef.current.forEach((audio) => audio.pause());
+        void pauseRoomMatch(room.id, user.displayName || "Player", pausedPos);
+      } else if (phaseRef.current === "paused") {
+        void resumeRoomMatch(room.id, room.pausedAt ?? songTime());
+      }
+      return;
+    }
+
     if (phaseRef.current === "playing") {
       audioRef.current.forEach((audio) => audio.pause());
       phaseRef.current = "paused";
@@ -1211,7 +1223,7 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
       phaseRef.current = "playing";
       setPhase("playing");
     }
-  }, []);
+  }, [room?.id, room?.pausedAt, songTime, user]);
 
   const launch = useCallback((startOffsetSeconds = 0) => {
     const audio = audioRef.current;
@@ -1282,8 +1294,39 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
         const startOffset = Math.max(0, (Date.now() - room.startTime) / 1000);
         launch(startOffset);
       }
+    } else if (room.status === "paused") {
+      setMultiplayerCountdown(null);
+      setMultiplayerResumeCountdown(null);
+      audioRef.current.forEach((audio) => {
+        audio.pause();
+        if (room.pausedAt !== undefined) {
+          audio.currentTime = room.pausedAt;
+        }
+      });
+      phaseRef.current = "paused";
+      setPhase("paused");
+    } else if (room.status === "resuming" && room.resumeCountdownUntil) {
+      const resumeInterval = setInterval(() => {
+        const now = Date.now();
+        const diffMs = room.resumeCountdownUntil! - now;
+        if (diffMs > 0) {
+          setMultiplayerResumeCountdown(Math.ceil(diffMs / 1000));
+        } else {
+          setMultiplayerResumeCountdown(null);
+          clearInterval(resumeInterval);
+          const resumePos = room.pausedAt ?? 0;
+          audioRef.current.forEach((audio) => {
+            audio.currentTime = resumePos;
+            audio.playbackRate = speed;
+            audio.play().catch(() => {});
+          });
+          phaseRef.current = "playing";
+          setPhase("playing");
+        }
+      }, 30);
+      return () => clearInterval(resumeInterval);
     }
-  }, [room?.id, room?.status, room?.startTime, launch]);
+  }, [room?.id, room?.status, room?.startTime, room?.pausedAt, room?.resumeCountdownUntil, launch, speed]);
 
   // Keyboard event listeners with activeKeybinds
   useEffect(() => {
@@ -1474,21 +1517,16 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
       }
       context.restore();
 
-      // Highway Dimensions Configuration
-      const isSideBySide = Boolean(room && Object.keys(room.players || {}).length > 1);
+      // Highway Dimensions Configuration (Always 1 Single Centered Full-Width Highway)
+      const isSideBySide = false;
       const horizonY = Math.max(90, height * 0.16);
       const hitY = height * 0.82;
       const travel = 2.4 / speed;
 
       // Local Player (P1) Highway Center
-      const p1CenterX = isSideBySide ? width * 0.28 : width / 2;
-      const p1TopWidth = isSideBySide ? Math.min(width * 0.22, 220) : Math.min(width * 0.40, 360);
-      const p1BottomWidth = isSideBySide ? Math.min(width * 0.40, 380) : Math.min(width * 0.72, 620);
-
-      // Remote Opponent (P2) Highway Center
-      const p2CenterX = width * 0.72;
-      const p2TopWidth = p1TopWidth;
-      const p2BottomWidth = p1BottomWidth;
+      const p1CenterX = width / 2;
+      const p1TopWidth = Math.min(width * 0.40, 360);
+      const p1BottomWidth = Math.min(width * 0.72, 620);
 
       const widthAt = (y: number, topW: number, botW: number) =>
         topW + (botW - topW) * ((y - horizonY) / (hitY - horizonY));
@@ -1828,54 +1866,46 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
         context.restore();
       };
 
-      // Render Player 1 Highway
+      // Render Player Highway (Always Centered)
       const p1Name = profile?.username ? `@${profile.username}` : user?.displayName || "You";
-      renderHighwaySurface(p1CenterX, p1TopWidth, p1BottomWidth, true, pulseActive, `${p1Name} (P1)`);
+      renderHighwaySurface(p1CenterX, p1TopWidth, p1BottomWidth, true, pulseActive, room ? `${p1Name} (YOU)` : p1Name);
 
-      // Render Player 2 Highway (If in Side-by-Side Multiplayer)
-      if (isSideBySide && remotePlayer) {
-        const p2Overdrive = false;
-        const p2Name = remotePlayer.displayName || "Opponent";
-        renderHighwaySurface(p2CenterX, p2TopWidth, p2BottomWidth, false, p2Overdrive, `${p2Name} (P2)`);
-
-        // RENDER CENTER BATTLE TUG-OF-WAR BAR & SCORE DIFFERENCE
+      // In Multiplayer: Render Top Live Versus Battle Status & Delta
+      if (room && remotePlayer) {
         const battleCenterX = width / 2;
         const p1Score = statsRef.current.score;
         const p2Score = remotePlayer.liveScore || 0;
         const diff = p1Score - p2Score;
+        const barTopY = Math.max(16, horizonY - 62);
 
         context.save();
-        // Central Battle Badge
-        context.font = "900 13px var(--mono, monospace)";
+        context.font = "900 12px var(--mono, monospace)";
         context.textAlign = "center";
-        context.fillStyle = "rgba(18, 18, 28, 0.85)";
-        context.strokeStyle = "rgba(255, 255, 255, 0.15)";
+        context.fillStyle = "rgba(12, 12, 20, 0.92)";
+        context.strokeStyle = "rgba(255, 255, 255, 0.16)";
         context.lineWidth = 1;
-        roundedRect(context, battleCenterX - 75, horizonY + 20, 150, 64, 10);
+        roundedRect(context, battleCenterX - 140, barTopY, 280, 46, 10);
         context.fill();
         context.stroke();
 
         context.fillStyle = "#8c899c";
         context.font = "900 9px var(--mono, monospace)";
-        context.fillText("⚔️ FACE-OFF DUEL", battleCenterX, horizonY + 36);
+        context.fillText(
+          `⚔️ ${room.mode.toUpperCase()} · VS ${remotePlayer.displayName.toUpperCase()}`,
+          battleCenterX,
+          barTopY + 16
+        );
 
-        // Score Delta (Ahead/Behind)
         context.font = "900 13px var(--mono, monospace)";
         if (diff > 0) {
           context.fillStyle = "#d8ff3f";
-          context.fillText(`+${diff.toLocaleString("id-ID")}`, battleCenterX, horizonY + 54);
-          context.font = "800 8px var(--mono, monospace)";
-          context.fillStyle = "#88aa20";
-          context.fillText("AHEAD", battleCenterX, horizonY + 68);
+          context.fillText(`+${diff.toLocaleString("id-ID")} PTS AHEAD`, battleCenterX, barTopY + 34);
         } else if (diff < 0) {
           context.fillStyle = "#ff3b69";
-          context.fillText(`${diff.toLocaleString("id-ID")}`, battleCenterX, horizonY + 54);
-          context.font = "800 8px var(--mono, monospace)";
-          context.fillStyle = "#aa2040";
-          context.fillText("BEHIND", battleCenterX, horizonY + 68);
+          context.fillText(`${diff.toLocaleString("id-ID")} PTS BEHIND`, battleCenterX, barTopY + 34);
         } else {
           context.fillStyle = "#ffffff";
-          context.fillText("TIED", battleCenterX, horizonY + 56);
+          context.fillText("SCORES TIED", battleCenterX, barTopY + 34);
         }
         context.restore();
       }
@@ -2021,9 +2051,6 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
           };
           statsRef.current = next;
           flashRef.current.push(...note.lanes.map((lane) => ({ lane, until: timestamp + 180, hit: false })));
-          if (multiplayerRoom?.id && user) {
-            void broadcastLiveStats(multiplayerRoom.id, user.uid, next.score, next.combo, false);
-          }
 
           const missLane = note.lanes.find((l) => l >= 0) ?? 2;
           const missX = p1CenterX + (missLane - 2) * (p1BottomWidth / 5);
@@ -2068,8 +2095,9 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
           setUpcomingLyrics(lyricData.upcomingLines);
         }
 
-        // Broadcast multiplayer live score
-        if (multiplayerRoom?.id && user) {
+        // Broadcast multiplayer live score (throttled to 1.5s to preserve quota)
+        if (multiplayerRoom?.id && user && timestamp - lastBroadcastTimeRef.current > 1500) {
+          lastBroadcastTimeRef.current = timestamp;
           void broadcastLiveStats(multiplayerRoom.id, user.uid, statsRef.current.score, statsRef.current.combo);
         }
 
@@ -2457,14 +2485,46 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
         </div>
       )}
 
+      {/* SYNCHRONIZED MULTIPLAYER RESUME COUNTDOWN */}
+      {room && multiplayerResumeCountdown !== null && multiplayerResumeCountdown > 0 && (
+        <div className="game-overlay mp-sync-countdown-overlay">
+          <div className="overlay-kicker">RESUMING ARENA · {room.id}</div>
+          <div className="mp-sync-countdown-num">{multiplayerResumeCountdown}</div>
+          <div className="mp-sync-countdown-sub">MELANJUTKAN PERTANDINGAN BERSAMA…</div>
+        </div>
+      )}
+
       {phase === "paused" && (
         <div className="game-overlay pause-overlay">
-          <div className="overlay-kicker">SIGNAL HELD</div>
+          <div className="overlay-kicker">{room ? `ARENA MULTIPLAYER · ${room.id}` : "SIGNAL HELD"}</div>
           <h1>PAUSED<span>.</span></h1>
+          {room && (
+            <div className="mp-pause-banner" style={{ textAlign: "center", marginBottom: 20 }}>
+              <p style={{ color: "#d8ff3f", fontWeight: 700, margin: "4px 0" }}>
+                Game di-pause oleh: <b>{room.pausedBy || "Pemain"}</b>
+              </p>
+              <small style={{ color: "#8c899c" }}>
+                Semua pemain di room berhenti sinkron di detik {Math.floor(room.pausedAt || 0)}s.
+              </small>
+            </div>
+          )}
           <div className="overlay-actions">
-            <button className="launch-button" type="button" onClick={pause}>RESUME <span>▶</span></button>
-            <button className="text-button" type="button" onClick={() => launch(0)}>Restart track</button>
-            <button className="text-button" type="button" onClick={onExit}>Exit to soundcheck</button>
+            <button className="launch-button" type="button" onClick={pause}>
+              LANJUTKAN (RESUME) <span>▶</span>
+            </button>
+            {!room && <button className="text-button" type="button" onClick={() => launch(0)}>Restart track</button>}
+            <button
+              className="text-button"
+              type="button"
+              onClick={() => {
+                if (room && user) {
+                  void leaveRoom(room.id, user.uid, isHost);
+                }
+                onExit();
+              }}
+            >
+              {room ? "Keluar dari Room" : "Exit to soundcheck"}
+            </button>
           </div>
         </div>
       )}

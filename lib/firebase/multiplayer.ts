@@ -38,10 +38,13 @@ export type MultiplayerRoom = {
   songMd5?: string;
   mode: MultiplayerMode;
   difficulty: Difficulty; // Global room difficulty set by Host
-  status: "lobby" | "loading" | "countdown" | "playing" | "finished";
+  status: "lobby" | "loading" | "countdown" | "playing" | "paused" | "resuming" | "finished";
   maxPlayers: number;
   countdownUntil?: number;
   startTime?: number; // Exact UNIX millisecond timestamp when audio starts
+  pausedAt?: number; // Audio position in seconds when paused
+  pausedBy?: string; // Display name of player who triggered pause
+  resumeCountdownUntil?: number; // UNIX timestamp when resuming begins
   players: Record<string, RoomPlayer>;
   createdAt: number;
 };
@@ -217,7 +220,7 @@ const pendingBroadcastMap = new Map<
 >();
 
 /**
- * Real-time throttled broadcast of score and combo during gameplay
+ * Real-time throttled broadcast of score and combo during gameplay (Throttled to 1.5s to preserve Firestore free tier quota)
  */
 export async function broadcastLiveStats(
   roomCode: string,
@@ -230,6 +233,7 @@ export async function broadcastLiveStats(
   const key = `${roomCode}_${uid}`;
   const now = Date.now();
   const lastTime = lastBroadcastTimeMap.get(key) || 0;
+  const THROTTLE_MS = 1500;
 
   const sendUpdate = async () => {
     try {
@@ -244,12 +248,16 @@ export async function broadcastLiveStats(
         payload[`players.${uid}.finalAccuracy`] = finalAccuracy;
       }
       await updateDoc(roomDocRef, payload);
-    } catch (err) {
-      console.error("Broadcast stats error:", err);
+    } catch (err: any) {
+      if (err?.code === "resource-exhausted") {
+        console.warn("Firestore quota exceeded: throttled live sync temporarily disabled.");
+      } else {
+        console.error("Broadcast stats error:", err);
+      }
     }
   };
 
-  if (finished || now - lastTime >= 100) {
+  if (finished || now - lastTime >= THROTTLE_MS) {
     const existing = pendingBroadcastMap.get(key);
     if (existing?.timer) clearTimeout(existing.timer);
     pendingBroadcastMap.delete(key);
@@ -261,7 +269,7 @@ export async function broadcastLiveStats(
     const timer = setTimeout(() => {
       pendingBroadcastMap.delete(key);
       void sendUpdate();
-    }, 100 - (now - lastTime));
+    }, THROTTLE_MS - (now - lastTime));
 
     pendingBroadcastMap.set(key, { liveScore, liveCombo, finished, finalAccuracy, timer });
   }
@@ -365,6 +373,41 @@ export async function forceStartCountdown(roomCode: string) {
     });
   } catch (err) {
     console.error("forceStartCountdown error:", err);
+  }
+}
+
+/**
+ * Pauses a multiplayer match synchronously for all players in the room
+ */
+export async function pauseRoomMatch(roomCode: string, pausedBy: string, pausedAtSeconds: number) {
+  try {
+    const roomDocRef = doc(db, "rooms", roomCode.toUpperCase());
+    await updateDoc(roomDocRef, {
+      status: "paused",
+      pausedAt: pausedAtSeconds,
+      pausedBy,
+      resumeCountdownUntil: null,
+    });
+  } catch (err) {
+    console.error("pauseRoomMatch error:", err);
+  }
+}
+
+/**
+ * Initiates synchronized countdown to resume a paused multiplayer match
+ */
+export async function resumeRoomMatch(roomCode: string, pausedAtSeconds: number) {
+  try {
+    const roomDocRef = doc(db, "rooms", roomCode.toUpperCase());
+    const resumeTimestamp = Date.now() + 3500; // 3.5s countdown
+    await updateDoc(roomDocRef, {
+      status: "resuming",
+      pausedAt: pausedAtSeconds,
+      resumeCountdownUntil: resumeTimestamp,
+      startTime: resumeTimestamp - pausedAtSeconds * 1000,
+    });
+  } catch (err) {
+    console.error("resumeRoomMatch error:", err);
   }
 }
 
