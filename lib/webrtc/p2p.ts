@@ -10,6 +10,12 @@ export type P2PMessage =
       liveCombo: number;
       finished?: boolean;
       finalAccuracy?: number;
+      perfectHits?: number;
+      greatHits?: number;
+      goodHits?: number;
+      okHits?: number;
+      misses?: number;
+      maxCombo?: number;
     }
   | {
       type: "pause";

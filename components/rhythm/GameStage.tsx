@@ -45,6 +45,10 @@ type Stats = {
   maxCombo: number;
   hits: number;
   misses: number;
+  perfectHits: number;
+  greatHits: number;
+  goodHits: number;
+  okHits: number;
   energy: number;
   feedback: string;
   baseMultiplier: number;
@@ -134,6 +138,10 @@ const initialStats: Stats = {
   maxCombo: 0,
   hits: 0,
   misses: 0,
+  perfectHits: 0,
+  greatHits: 0,
+  goodHits: 0,
+  okHits: 0,
   energy: 0,
   feedback: "LOCK IN",
   baseMultiplier: 1,
@@ -670,6 +678,12 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
                 liveCombo: msg.liveCombo,
                 finished: Boolean(msg.finished),
                 finalAccuracy: msg.finalAccuracy ?? updatedPlayers[msg.uid].finalAccuracy,
+                perfectHits: msg.perfectHits ?? updatedPlayers[msg.uid].perfectHits,
+                greatHits: msg.greatHits ?? updatedPlayers[msg.uid].greatHits,
+                goodHits: msg.goodHits ?? updatedPlayers[msg.uid].goodHits,
+                okHits: msg.okHits ?? updatedPlayers[msg.uid].okHits,
+                misses: msg.misses ?? updatedPlayers[msg.uid].misses,
+                maxCombo: msg.maxCombo ?? updatedPlayers[msg.uid].maxCombo,
               };
             }
             return { ...prev, players: updatedPlayers };
@@ -1074,6 +1088,10 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
     }
 
     const notePoints = judgementBasePoints * Math.max(1, note.lanes.length) * effectiveMultiplier;
+    const isPerfect = deltaMs <= 40;
+    const isGreat = deltaMs > 40 && deltaMs <= 80;
+    const isGood = deltaMs > 80 && deltaMs <= 125;
+    const isOk = deltaMs > 125;
 
     const next: Stats = {
       score: current.score + notePoints,
@@ -1081,6 +1099,10 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
       maxCombo: Math.max(current.maxCombo, nextCombo),
       hits: current.hits + 1,
       misses: current.misses,
+      perfectHits: current.perfectHits + (isPerfect ? 1 : 0),
+      greatHits: current.greatHits + (isGreat ? 1 : 0),
+      goodHits: current.goodHits + (isGood ? 1 : 0),
+      okHits: current.okHits + (isOk ? 1 : 0),
       energy: nextEnergy,
       feedback,
       baseMultiplier,
@@ -1101,21 +1123,21 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
       const rx = p1CenterX + (lane - 2) * (p1BottomWidth / 5);
       const laneColor = note.overdrive ? "#00f0ff" : colors[lane];
 
-      // 1. Localized Receptor Shockwave Ring
+      // 1. High Energy Highway Shockwave ring on Hit Receptor
       shockwavesRef.current.push({
         x: rx,
         y: hitY,
-        radius: 8,
-        maxRadius: 28,
+        radius: 12,
+        maxRadius: note.overdrive ? 55 : 44,
         color: laneColor,
         life: 1,
-        maxLife: 0.22,
+        maxLife: 0.28,
       });
 
-      // 2. Authentic Guitar Hero Receptor Flame Tongue
+      // 2. Receptor Flame Pillar (Guitar Hero Style)
       flamesRef.current.push({
         x: rx,
-        y: hitY + 2,
+        y: hitY + 12,
         lane,
         color: laneColor,
         life: 1,
@@ -1170,6 +1192,12 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
         liveScore: next.score,
         liveCombo: next.combo,
         finished: false,
+        perfectHits: next.perfectHits,
+        greatHits: next.greatHits,
+        goodHits: next.goodHits,
+        okHits: next.okHits,
+        misses: next.misses,
+        maxCombo: next.maxCombo,
       });
     }
   }, [multiplayerRoom?.id, notePhraseMap, publishStats, user]);
@@ -2195,7 +2223,36 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
           });
 
           if (multiplayerRoom?.id) {
-            void broadcastLiveStats(multiplayerRoom.id, user.uid, finalStats.score, finalStats.combo, true, finalAcc);
+            void broadcastLiveStats(
+              multiplayerRoom.id,
+              user.uid,
+              finalStats.score,
+              finalStats.combo,
+              true,
+              finalAcc,
+              {
+                perfectHits: finalStats.perfectHits,
+                greatHits: finalStats.greatHits,
+                goodHits: finalStats.goodHits,
+                okHits: finalStats.okHits,
+                misses: finalStats.misses,
+                maxCombo: finalStats.maxCombo,
+              }
+            );
+            p2p.broadcast({
+              type: "stats",
+              uid: user.uid,
+              liveScore: finalStats.score,
+              liveCombo: finalStats.combo,
+              finished: true,
+              finalAccuracy: finalAcc,
+              perfectHits: finalStats.perfectHits,
+              greatHits: finalStats.greatHits,
+              goodHits: finalStats.goodHits,
+              okHits: finalStats.okHits,
+              misses: finalStats.misses,
+              maxCombo: finalStats.maxCombo,
+            });
           }
         }
       }
@@ -2637,19 +2694,59 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
               <div className="podium-list">
                 {Object.values(room.players)
                   .sort((a, b) => b.liveScore - a.liveScore)
-                  .map((p, idx) => (
-                    <div key={p.uid} className={`podium-card rank-${idx + 1} ${p.uid === user?.uid ? "is-me" : ""}`}>
-                      <div className="podium-rank">{`#${idx + 1}`}</div>
-                      <div className="podium-player">
-                        <strong>{p.displayName} {p.uid === user?.uid && "(You)"}</strong>
-                        <span className="inst-pill">{p.instrument.toUpperCase()}</span>
+                  .map((p, idx) => {
+                    const isMe = p.uid === user?.uid;
+                    const pPerfect = isMe ? stats.perfectHits : (p.perfectHits ?? 0);
+                    const pGreat = isMe ? stats.greatHits : (p.greatHits ?? 0);
+                    const pGood = isMe ? stats.goodHits : (p.goodHits ?? 0);
+                    const pOk = isMe ? stats.okHits : (p.okHits ?? 0);
+                    const pMiss = isMe ? stats.misses : (p.misses ?? 0);
+                    const pMaxStreak = isMe ? stats.maxCombo : (p.maxCombo ?? p.liveCombo);
+
+                    return (
+                      <div key={p.uid} className={`podium-card rank-${idx + 1} ${isMe ? "is-me" : ""}`}>
+                        <div className="podium-header-row">
+                          <div className="podium-rank">{`#${idx + 1}`}</div>
+                          <div className="podium-player">
+                            <strong>{p.displayName} {isMe && "(You)"}</strong>
+                            <span className="inst-pill">{p.instrument.toUpperCase()}</span>
+                          </div>
+                          <div className="podium-score">
+                            <strong>{p.liveScore.toLocaleString("id-ID")} PTS</strong>
+                            {p.finalAccuracy !== undefined && <small>{p.finalAccuracy.toFixed(1)}% SYNC</small>}
+                          </div>
+                        </div>
+
+                        {/* Detailed Breakdown Statistics */}
+                        <div className="podium-stats-grid">
+                          <div className="p-stat-item perfect">
+                            <span>PERFECT</span>
+                            <b>{pPerfect}</b>
+                          </div>
+                          <div className="p-stat-item great">
+                            <span>GREAT</span>
+                            <b>{pGreat}</b>
+                          </div>
+                          <div className="p-stat-item good">
+                            <span>GOOD</span>
+                            <b>{pGood}</b>
+                          </div>
+                          <div className="p-stat-item ok">
+                            <span>OK</span>
+                            <b>{pOk}</b>
+                          </div>
+                          <div className="p-stat-item miss">
+                            <span>MISS</span>
+                            <b>{pMiss}</b>
+                          </div>
+                          <div className="p-stat-item combo">
+                            <span>MAX STREAK</span>
+                            <b>{pMaxStreak}×</b>
+                          </div>
+                        </div>
                       </div>
-                      <div className="podium-score">
-                        <strong>{p.liveScore.toLocaleString("id-ID")} PTS</strong>
-                        {p.finalAccuracy !== undefined && <small>{p.finalAccuracy.toFixed(1)}% SYNC</small>}
-                      </div>
-                    </div>
-                  ))}
+                    );
+                  })}
               </div>
               <div className="overlay-actions result-actions">
                 <button className="launch-button" type="button" onClick={onExit}>EXIT TO LOBBY <span>↗</span></button>
@@ -2661,11 +2758,14 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
               <div className="result-copy">
                 <div className="overlay-kicker">SET COMPLETE</div>
                 <h1>{stats.score.toLocaleString("id-ID")}<span> pts</span></h1>
-                <div className="result-grid">
+                <div className="result-grid extended-stats">
                   <div><strong>{accuracy.toFixed(1)}%</strong><span>SYNC</span></div>
-                  <div><strong>{stats.maxCombo}</strong><span>MAX STREAK</span></div>
-                  <div><strong>{stats.hits}</strong><span>HITS</span></div>
-                  <div><strong>{stats.misses}</strong><span>MISSES</span></div>
+                  <div><strong>{stats.maxCombo}×</strong><span>MAX STREAK</span></div>
+                  <div className="stat-perfect"><strong>{stats.perfectHits}</strong><span>PERFECT</span></div>
+                  <div className="stat-great"><strong>{stats.greatHits}</strong><span>GREAT</span></div>
+                  <div className="stat-good"><strong>{stats.goodHits}</strong><span>GOOD</span></div>
+                  <div className="stat-ok"><strong>{stats.okHits}</strong><span>OK</span></div>
+                  <div className="stat-miss"><strong>{stats.misses}</strong><span>MISS</span></div>
                 </div>
                 <div className="overlay-actions result-actions">
                   <button className="launch-button" type="button" onClick={() => launch()}>PLAY AGAIN <span>↻</span></button>

@@ -28,6 +28,12 @@ export type RoomPlayer = {
   liveCombo: number;
   finished: boolean;
   finalAccuracy?: number;
+  perfectHits?: number;
+  greatHits?: number;
+  goodHits?: number;
+  okHits?: number;
+  misses?: number;
+  maxCombo?: number;
 };
 
 export type MultiplayerRoom = {
@@ -226,13 +232,23 @@ const pendingBroadcastMap = new Map<
 /**
  * Real-time throttled broadcast of score and combo during gameplay (Throttled to 1.5s to preserve Firestore free tier quota)
  */
+export type JudgementStatsPayload = {
+  perfectHits?: number;
+  greatHits?: number;
+  goodHits?: number;
+  okHits?: number;
+  misses?: number;
+  maxCombo?: number;
+};
+
 export async function broadcastLiveStats(
   roomCode: string,
   uid: string,
   liveScore: number,
   liveCombo: number,
   finished = false,
-  finalAccuracy?: number
+  finalAccuracy?: number,
+  judgementStats?: JudgementStatsPayload
 ) {
   const key = `${roomCode}_${uid}`;
   const now = Date.now();
@@ -250,6 +266,14 @@ export async function broadcastLiveStats(
       };
       if (finalAccuracy !== undefined) {
         payload[`players.${uid}.finalAccuracy`] = finalAccuracy;
+      }
+      if (judgementStats) {
+        if (judgementStats.perfectHits !== undefined) payload[`players.${uid}.perfectHits`] = judgementStats.perfectHits;
+        if (judgementStats.greatHits !== undefined) payload[`players.${uid}.greatHits`] = judgementStats.greatHits;
+        if (judgementStats.goodHits !== undefined) payload[`players.${uid}.goodHits`] = judgementStats.goodHits;
+        if (judgementStats.okHits !== undefined) payload[`players.${uid}.okHits`] = judgementStats.okHits;
+        if (judgementStats.misses !== undefined) payload[`players.${uid}.misses`] = judgementStats.misses;
+        if (judgementStats.maxCombo !== undefined) payload[`players.${uid}.maxCombo`] = judgementStats.maxCombo;
       }
       await updateDoc(roomDocRef, payload);
     } catch (err: any) {
