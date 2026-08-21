@@ -102,7 +102,9 @@ export function VideoSettingsModal({
         selectedVideoId,
         offset,
         user,
-        selectedVideoTitle
+        selectedVideoTitle,
+        dim,
+        mode
       );
       if (res.success) {
         alert("🎉 BERHASIL DISIMPAN KE GLOBAL FIRESTORE!\n\nVideo musik ini sekarang otomatis muncul sebagai latar resmi untuk semua pemain di seluruh dunia.");

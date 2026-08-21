@@ -23,7 +23,7 @@ import {
   joinMultiplayerRoom,
   type MultiplayerRoom,
 } from "@/lib/firebase/multiplayer";
-import { autoFetchMusicVideo } from "@/lib/video/youtube";
+import { autoFetchMusicVideo, getGlobalSongVideo } from "@/lib/video/youtube";
 import { VideoSettingsModal } from "./VideoSettingsModal";
 import type { VideoPlaybackMode } from "./YouTubeVideoBackground";
 import { GameStage } from "./GameStage";
@@ -549,6 +549,13 @@ export function RhythmLab() {
         if (vid?.videoId) {
           setSoundCheckVideoId(vid.videoId);
           setSoundCheckVideoTitle(vid.title);
+          // Load calibration data (offset, dim, mode) from Firestore
+          const globalCfg = await getGlobalSongVideo(selectedSong.metadata.artist, selectedSong.metadata.title);
+          if (!isCancelled && globalCfg) {
+            if (globalCfg.offsetMs !== undefined) setSoundCheckVideoOffsetMs(globalCfg.offsetMs);
+            if (globalCfg.dimPercent !== undefined) setSoundCheckVideoDimPercent(globalCfg.dimPercent);
+            if (globalCfg.mode) setSoundCheckVideoMode(globalCfg.mode);
+          }
         } else {
           setSoundCheckVideoId(null);
           setSoundCheckVideoTitle("");

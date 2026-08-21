@@ -20,7 +20,7 @@ import { p2p, type P2PMessage } from "@/lib/webrtc/p2p";
 import { soundFX } from "@/lib/rhythm/soundFx";
 import { YouTubeVideoBackground, type VideoPlaybackMode } from "./YouTubeVideoBackground";
 import { VideoSettingsModal } from "./VideoSettingsModal";
-import { autoFetchMusicVideo } from "@/lib/video/youtube";
+import { autoFetchMusicVideo, getGlobalSongVideo } from "@/lib/video/youtube";
 
 type InputMode = "tap" | "strum";
 
@@ -616,6 +616,12 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
         if (active && vid?.videoId) {
           setVideoId(vid.videoId);
           setVideoTitle(vid.title);
+          // Also load calibration data (offset, dim, mode) from Firestore
+          const globalCfg = await getGlobalSongVideo(song.metadata.artist, song.metadata.title);
+          if (active && globalCfg) {
+            if (globalCfg.offsetMs !== undefined) setVideoOffsetMs(globalCfg.offsetMs);
+            if (globalCfg.dimPercent !== undefined) setVideoDimPercent(globalCfg.dimPercent);
+          }
         }
       } catch (err) {
         console.warn("Auto video fetch failed:", err);
@@ -1217,26 +1223,92 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
     return best;
   }, [chart.notes]);
 
+  // Guitar Hero-style: pressing when no note is present breaks combo ("overstrum" / ghost note)
+  const ghostPenalty = useCallback((lane?: number) => {
+    const current = statsRef.current;
+    if (current.combo === 0) return; // already broken, avoid spam punishment repeat
+    soundFX.playMissSound();
+
+    const canvas = canvasRef.current;
+    const cWidth = canvas?.clientWidth ?? 800;
+    const cHeight = canvas?.clientHeight ?? 600;
+    const p1CenterX = cWidth / 2;
+    const p1BottomWidth = Math.min(cWidth * 0.72, 620);
+    const hitY = cHeight * 0.82;
+    const ghostX = lane !== undefined
+      ? p1CenterX + (lane - 2) * (p1BottomWidth / 5)
+      : p1CenterX;
+
+    floatingTextsRef.current.push({
+      text: "OVERSTRUM!",
+      x: ghostX,
+      y: hitY - 36,
+      vy: -65,
+      life: 1,
+      maxLife: 0.6,
+      color: "#ff4c67",
+      scale: 1.15,
+    });
+
+    const pulseActive = songTime() < activePulseUntilRef.current;
+    const next: Stats = {
+      ...current,
+      combo: 0,
+      misses: current.misses + 1,
+      feedback: "OVERSTRUM!",
+      baseMultiplier: 1,
+      effectiveMultiplier: pulseActive ? 2 : 1,
+      multiplierProgress: 0,
+      isStarPower: pulseActive,
+    };
+    publishStats(next);
+
+    if (multiplayerRoom?.id && user) {
+      p2p.broadcast({
+        type: "stats",
+        uid: user.uid,
+        liveScore: next.score,
+        liveCombo: next.combo,
+        finished: false,
+        perfectHits: next.perfectHits,
+        greatHits: next.greatHits,
+        goodHits: next.goodHits,
+        okHits: next.okHits,
+        misses: next.misses,
+        maxCombo: next.maxCombo,
+      });
+    }
+  }, [multiplayerRoom?.id, publishStats, songTime, user]);
+
   const attemptTap = useCallback((lane: number) => {
     if (phaseRef.current !== "playing") return;
     const candidate = findCandidate(songTime(), lane);
     if (!candidate) {
       flashRef.current.push({ lane, until: performance.now() + 120, hit: false });
+      ghostPenalty(lane);
       return;
     }
     const lanesReady = candidate.lanes.every((required) => required === -1 || pressedRef.current.has(required));
     if (lanesReady) hitNote(candidate);
-  }, [findCandidate, hitNote, songTime]);
+  }, [findCandidate, ghostPenalty, hitNote, songTime]);
 
   const attemptStrum = useCallback(() => {
     if (phaseRef.current !== "playing") return;
     const candidate = findCandidate(songTime());
-    if (!candidate) return;
+    if (!candidate) {
+      ghostPenalty();
+      return;
+    }
     const required = candidate.lanes.filter((lane) => lane >= 0);
     const held = [...pressedRef.current].sort((a, b) => a - b);
     const exact = required.length === held.length && required.every((lane, index) => held[index] === lane);
-    if (exact) hitNote(candidate);
-  }, [findCandidate, hitNote, songTime]);
+    if (exact) {
+      hitNote(candidate);
+    } else {
+      // Wrong chord held — overstrum penalty
+      ghostPenalty();
+    }
+  }, [findCandidate, ghostPenalty, hitNote, songTime]);
 
   const activatePulse = useCallback(() => {
     if (phaseRef.current !== "playing" || statsRef.current.isStarPower) return;
@@ -2981,7 +3053,7 @@ export function GameStage({ song, chart, speed, offsetMs, inputMode, multiplayer
           videoOffsetMs={videoOffsetMs}
           videoDimPercent={videoDimPercent}
           videoEnabled={videoEnabled}
-          onUpdateVideo={(id, offset, dim, enabled, title) => {
+          onUpdateVideo={(id, offset, dim, enabled, title, mode) => {
             setVideoId(id);
             if (title) setVideoTitle(title);
             setVideoOffsetMs(offset);

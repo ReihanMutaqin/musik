@@ -5,6 +5,8 @@ export type GlobalVideoConfig = {
   videoId: string;
   videoTitle?: string;
   offsetMs: number;
+  dimPercent?: number;
+  mode?: "full" | "loop" | "off";
   syncedBy?: string;
   updatedAt: number;
 };
@@ -66,7 +68,9 @@ export async function saveGlobalSongVideo(
   videoId: string,
   offsetMs = 0,
   user?: { displayName?: string | null; username?: string | null } | null,
-  videoTitle?: string
+  videoTitle?: string,
+  dimPercent?: number,
+  mode?: "full" | "loop" | "off"
 ) {
   try {
     const key = getSongDocKey(artist, title);
@@ -75,6 +79,8 @@ export async function saveGlobalSongVideo(
       videoId,
       videoTitle: videoTitle || "",
       offsetMs,
+      ...(dimPercent !== undefined && { dimPercent }),
+      ...(mode !== undefined && { mode }),
       syncedBy: user?.displayName || user?.username || "Community Virtuoso",
       updatedAt: Date.now(),
     };
